@@ -137,32 +137,35 @@ const mockDrivers = [
   },
 ];
 
-// Function to generate random movement (kept from your code)
+// Function to generate random movement (keeps drivers within 0.5km of original location)
 function generateRandomMovement(baseLocation, maxDistanceKm = 0.5) {
-  const earthRadius = 6371; // km
-  const maxDistance = maxDistanceKm / earthRadius;
+  // Earth's radius in km
+  const earthRadius = 6371;
+  // Convert max distance to angular distance in radians
+  const maxDistRad = maxDistanceKm / earthRadius;
 
-  const randomDistance = Math.random() * maxDistance;
+  // Random distance and bearing
+  const randomDist = Math.random() * maxDistRad;
   const randomBearing = Math.random() * 2 * Math.PI;
 
   const lat1 = (baseLocation.latitude * Math.PI) / 180;
   const lon1 = (baseLocation.longitude * Math.PI) / 180;
 
   const lat2 = Math.asin(
-    Math.sin(lat1) * Math.cos(randomDistance) +
-      Math.cos(lat1) * Math.sin(randomDistance) * Math.cos(randomBearing)
+    Math.sin(lat1) * Math.cos(randomDist) +
+      Math.cos(lat1) * Math.sin(randomDist) * Math.cos(randomBearing)
   );
 
   const lon2 =
     lon1 +
     Math.atan2(
-      Math.sin(randomBearing) * Math.sin(randomDistance) * Math.cos(lat1),
-      Math.cos(randomDistance) - Math.sin(lat1) * Math.sin(lat2)
+      Math.sin(randomBearing) * Math.sin(randomDist) * Math.cos(lat1),
+      Math.cos(randomDist) - Math.sin(lat1) * Math.sin(lat2)
     );
 
   return {
-    latitude: (lat2 * 180) / Math.PI,
-    longitude: (lon2 * 180) / Math.PI,
+    latitude: +((lat2 * 180) / Math.PI).toFixed(6),
+    longitude: +((lon2 * 180) / Math.PI).toFixed(6),
   };
 }
 

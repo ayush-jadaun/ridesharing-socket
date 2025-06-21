@@ -1,8 +1,7 @@
 const { io } = require("socket.io-client");
 
 class UserSimulator {
-  constructor(serverUrl = "http://localhost:3000") {
-    // CHANGED FROM 5000 to 3000
+  constructor(serverUrl = "http://localhost:5000") {
     this.serverUrl = serverUrl;
     this.activeRequests = new Set();
   }
@@ -67,7 +66,6 @@ class UserSimulator {
         });
       });
 
-      // FIXED: Handle duplicate request error
       socket.on("duplicate_request_error", (data) => {
         console.log(
           `⚠️ ${userData.userName} already has active request: ${data.existingRequestId}`
@@ -81,7 +79,6 @@ class UserSimulator {
         });
       });
 
-      // FIXED: Handle search expansion with proper data
       socket.on("search_expansion", (data) => {
         const current =
           data.currentRadius !== undefined ? data.currentRadius : "?";
@@ -96,7 +93,6 @@ class UserSimulator {
         );
       });
 
-      // FIXED: Handle drivers found with proper data
       socket.on("drivers_found", (data) => {
         const radius = data.radius !== undefined ? data.radius : "unknown";
         const attempts =
@@ -108,7 +104,6 @@ class UserSimulator {
         );
       });
 
-      // FIXED: Handle no drivers found with proper data
       socket.on("no_drivers_found", (data) => {
         const radius =
           data.searchRadius !== undefined ? data.searchRadius : "0";
@@ -234,28 +229,94 @@ class UserSimulator {
   ) {
     const users = [
       {
-        id: "user_001",
-        name: "Ayush Sharma",
-        location: { latitude: 28.6139, longitude: 77.209 }, // Central Delhi
+        userId: "user_001",
+        userName: "Ayush Sharma",
+        location: { latitude: 28.6129, longitude: 77.2295 },
+        destination: { latitude: 28.6562, longitude: 77.241 },
         vehicleType: "car",
-        pickupAddress: "Central Delhi",
-        dropoffAddress: "Connaught Place",
+        pickupAddress: "Janpath, Connaught Place",
+        dropoffAddress: "Red Fort, Chandni Chowk",
       },
       {
-        id: "user_002",
-        name: "Neha Gupta",
-        location: { latitude: 28.5355, longitude: 77.391 }, // Noida
-        vehicleType: "any",
-        pickupAddress: "Noida Sector 18",
-        dropoffAddress: "India Gate",
+        userId: "user_002",
+        userName: "Neha Gupta",
+        location: { latitude: 28.6328, longitude: 77.2205 },
+        destination: { latitude: 28.6139, longitude: 77.209 },
+        vehicleType: "bike",
+        pickupAddress: "Karol Bagh, Delhi",
+        dropoffAddress: "Connaught Place, Delhi",
       },
       {
-        id: "user_003",
-        name: "Rohit Kumar",
-        location: { latitude: 28.48, longitude: 77.08 }, // Closer to Gurgaon
+        userId: "user_003",
+        userName: "Rohit Kumar",
+        location: { latitude: 28.5733, longitude: 77.2425 },
+        destination: { latitude: 28.5672, longitude: 77.21 },
+        vehicleType: "auto",
+        pickupAddress: "Lajpat Nagar, Delhi",
+        dropoffAddress: "Hauz Khas, Delhi",
+      },
+      {
+        userId: "user_004",
+        userName: "Priya Singh",
+        location: { latitude: 28.7041, longitude: 77.1025 },
+        destination: { latitude: 28.6507, longitude: 77.2334 },
         vehicleType: "car",
-        pickupAddress: "Gurgaon",
-        dropoffAddress: "Red Fort",
+        pickupAddress: "Rohini, Delhi",
+        dropoffAddress: "Kashmere Gate, Delhi",
+      },
+      {
+        userId: "user_005",
+        userName: "Vikram Mehra",
+        location: { latitude: 28.5245, longitude: 77.1855 },
+        destination: { latitude: 28.6619, longitude: 77.2274 },
+        vehicleType: "car",
+        pickupAddress: "South Extension, Delhi",
+        dropoffAddress: "Civil Lines, Delhi",
+      },
+      {
+        userId: "user_006",
+        userName: "Simran Kaur",
+        location: { latitude: 28.6791, longitude: 77.1025 },
+        destination: { latitude: 28.687, longitude: 77.2946 },
+        vehicleType: "auto",
+        pickupAddress: "Pitampura, Delhi",
+        dropoffAddress: "Shahdara, Delhi",
+      },
+      {
+        userId: "user_007",
+        userName: "Amit Verma",
+        location: { latitude: 28.6083, longitude: 77.2442 },
+        destination: { latitude: 28.6139, longitude: 77.209 },
+        vehicleType: "bike",
+        pickupAddress: "Nizamuddin, Delhi",
+        dropoffAddress: "Connaught Place, Delhi",
+      },
+      {
+        userId: "user_008",
+        userName: "Anjali Rao",
+        location: { latitude: 28.6507, longitude: 77.2334 },
+        destination: { latitude: 28.5672, longitude: 77.21 },
+        vehicleType: "car",
+        pickupAddress: "Kashmere Gate, Delhi",
+        dropoffAddress: "Hauz Khas, Delhi",
+      },
+      {
+        userId: "user_009",
+        userName: "Saurabh Jain",
+        location: { latitude: 28.6619, longitude: 77.2274 },
+        destination: { latitude: 28.5733, longitude: 77.2425 },
+        vehicleType: "bike",
+        pickupAddress: "Civil Lines, Delhi",
+        dropoffAddress: "Lajpat Nagar, Delhi",
+      },
+      {
+        userId: "user_010",
+        userName: "Megha Choudhary",
+        location: { latitude: 28.6304, longitude: 77.2187 },
+        destination: { latitude: 28.6139, longitude: 77.209 },
+        vehicleType: "auto",
+        pickupAddress: "Rajendra Place, Delhi",
+        dropoffAddress: "Connaught Place, Delhi",
       },
     ];
 
@@ -265,16 +326,16 @@ class UserSimulator {
       `🚀 Starting ${numberOfUsers} ride requests with ${delayBetweenRequests}ms delay...`
     );
 
-    // FIXED: Use different users for concurrent requests to prevent duplicate user IDs
     for (let i = 0; i < numberOfUsers && i < users.length; i++) {
-      const user = users[i]; // Use different user for each request
+      const user = users[i];
 
       try {
         console.log(`\n--- Request ${i + 1}/${numberOfUsers} ---`);
 
+        // *** FIX is here: use user.userId, user.userName ***
         const result = await this.simulateRideRequest({
-          userId: user.id,
-          userName: user.name,
+          userId: user.userId,
+          userName: user.userName,
           location: user.location,
           vehicleType: user.vehicleType,
           pickupAddress: user.pickupAddress,
@@ -284,7 +345,6 @@ class UserSimulator {
         console.log(`✅ Request ${i + 1} completed: ${result.status}`);
         results.push(result);
 
-        // Wait between requests (except for the last one)
         if (i < numberOfUsers - 1) {
           console.log(
             `⏳ Waiting ${delayBetweenRequests / 1000}s before next request...`
@@ -295,7 +355,7 @@ class UserSimulator {
         console.error(`❌ Request ${i + 1} failed:`, error.message);
         results.push({
           status: "error",
-          userId: user.id,
+          userId: user.userId,
           error: error.message,
         });
       }
@@ -304,11 +364,10 @@ class UserSimulator {
     return results;
   }
 
-  // ADDED: Method for concurrent requests with unique user IDs
   async simulateConcurrentRequests(numberOfUsers = 3) {
     const users = [
       {
-        id: "user_concurrent_001", // Unique IDs for concurrent tests
+        id: "user_concurrent_001",
         name: "Ayush Sharma",
         location: { latitude: 28.6139, longitude: 77.209 },
         vehicleType: "car",

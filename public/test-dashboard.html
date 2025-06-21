@@ -10,6 +10,8 @@
     <!-- Leaflet.js for Map -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <!-- (Optional) Leaflet Rotated Marker for car rotation -->
+    <script src="https://unpkg.com/leaflet-rotatedmarker/leaflet.rotatedMarker.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #333; }
@@ -170,14 +172,21 @@
         }
         function updateDriverMarker(driver) {
             const key = driver.id;
-            const icon = L.icon({
-                iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png',
-                iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -32]
+            const carIcon = L.icon({
+                iconUrl: 'https://cdn.jsdelivr.net/gh/hello-beacon/gh-cdn-public/car-uber-style.png',
+                iconSize: [48, 24],
+                iconAnchor: [24, 12],
+                popupAnchor: [0, -18]
             });
             if (driverMarkers[key]) {
                 driverMarkers[key].setLatLng([driver.lat, driver.lng]);
+                // If using heading, also update rotation:
+                // driverMarkers[key].setRotationAngle(driver.heading || 0);
             } else {
-                driverMarkers[key] = L.marker([driver.lat, driver.lng], {icon})
+                driverMarkers[key] = L.marker([driver.lat, driver.lng], {
+                    icon: carIcon
+                    // , rotationAngle: driver.heading || 0
+                })
                     .addTo(map)
                     .bindPopup(`<b>🚗 ${driver.name}</b><br>${driver.vehicle}<br>⭐${driver.rating}`);
             }

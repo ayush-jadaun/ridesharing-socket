@@ -7,106 +7,18 @@ const redisManager = require("../config/redis");
 class RideService {
   constructor() {
     this.activeRequests = new Map();
+    // Add local locks for additional protection
     this.processingLocks = new Map();
   }
 
+  // Add getter for Redis client
   get redis() {
     return redisManager.getClient();
-  }
-
-  /**
-   * Check if user already has an active ride request
-   */
-  async getUserActiveRequest(userId) {
-    try {
-      const activeRequestId = await this.redis.hget(
-        config.REDIS_KEYS.USER_ACTIVE_REQUESTS,
-        userId
-      );
-      
-      if (activeRequestId) {
-        // Verify the request still exists and is active
-        const requestData = await this.redis.hget(
-          config.REDIS_KEYS.RIDE_REQUESTS,
-          activeRequestId
-        );
-        
-        if (requestData) {
-          const request = JSON.parse(requestData);
-          if (['searching', 'accepted'].includes(request.status)) {
-            return { requestId: activeRequestId, request };
-          } else {
-            // Clean up stale reference
-            await this.redis.hdel(config.REDIS_KEYS.USER_ACTIVE_REQUESTS, userId);
-          }
-        } else {
-          // Clean up stale reference
-          await this.redis.hdel(config.REDIS_KEYS.USER_ACTIVE_REQUESTS, userId);
-        }
-      }
-      
-      return null;
-    } catch (error) {
-      logger.error(`Error checking user active request for ${userId}:`, error);
-      return null;
-    }
-  }
-
-  /**
-   * Check if driver is currently busy/assigned
-   */
-  async getDriverActiveRide(driverId) {
-    try {
-      const activeRideId = await this.redis.hget(
-        config.REDIS_KEYS.DRIVER_ACTIVE_RIDES,
-        driverId
-      );
-      
-      if (activeRideId) {
-        // Verify the ride still exists and driver is assigned
-        const rideData = await this.redis.hget(
-          config.REDIS_KEYS.RIDE_REQUESTS,
-          activeRideId
-        );
-        
-        if (rideData) {
-          const ride = JSON.parse(rideData);
-          if (ride.status === 'accepted' && ride.acceptedBy === driverId) {
-            return { rideId: activeRideId, ride };
-          } else {
-            // Clean up stale reference
-            await this.redis.hdel(config.REDIS_KEYS.DRIVER_ACTIVE_RIDES, driverId);
-          }
-        } else {
-          // Clean up stale reference
-          await this.redis.hdel(config.REDIS_KEYS.DRIVER_ACTIVE_RIDES, driverId);
-        }
-      }
-      
-      return null;
-    } catch (error) {
-      logger.error(`Error checking driver active ride for ${driverId}:`, error);
-      return null;
-    }
   }
 
   async findAndBroadcastToDrivers(io, userRequest, additionalData = {}) {
     try {
       const { userId, latitude, longitude, vehicleType } = userRequest;
-      
-      // CRITICAL CHECK: Prevent multiple requests from same user
-      const existingRequest = await this.getUserActiveRequest(userId);
-      if (existingRequest) {
-        logger.warn(`User ${userId} already has active request ${existingRequest.requestId}`);
-        return {
-          success: false,
-          error: "ACTIVE_REQUEST_EXISTS",
-          message: "You already have an active ride request",
-          existingRequestId: existingRequest.requestId,
-          existingRequest: existingRequest.request
-        };
-      }
-
       const requestId = `ride_${Date.now()}_${Math.random()
         .toString(36)
         .substr(2, 9)}`;
@@ -114,6 +26,7 @@ class RideService {
 
       logger.info(`Starting ride request ${requestId} for user ${userId}`);
 
+      // Create ride request object
       const rideRequest = {
         requestId,
         userId,
@@ -132,47 +45,30 @@ class RideService {
         notifiedDrivers: [],
         responses: {},
         searchAttempts: [],
-        version: 1
+        // Add version for optimistic locking
+        version: 1,
       };
 
-      // ATOMIC OPERATION: Store ride request and user mapping together
-      const multi = this.redis.multi();
-      
-      // Store the ride request
-      multi.hsetnx(
-        config.REDIS_KEYS.RIDE_REQUESTS,
-        requestId,
-        JSON.stringify(rideRequest)
-      );
-      
-      // Link user to this request
-      multi.hset(
-        config.REDIS_KEYS.USER_ACTIVE_REQUESTS,
-        userId,
-        requestId
-      );
-      
-      // Set expiration for user request mapping
-      multi.expire(
-        config.REDIS_KEYS.USER_ACTIVE_REQUESTS,
-        config.DRIVER_RESPONSE_TIMEOUT + 60 // Extra buffer
-      );
-      
-      const results = await multi.exec();
-      
-      if (!results || !results[0] || !results[0][1]) {
-        throw new Error("Failed to create ride request - ID collision");
-      }
-
+      // Store ride request in Redis with atomic operation
       try {
-        const result = await this.findDriversWithExpansion(io, rideRequest);
-        return result;
-      } catch (error) {
-        // If search fails, clean up user mapping
-        await this.redis.hdel(config.REDIS_KEYS.USER_ACTIVE_REQUESTS, userId);
-        throw error;
+        const success = await this.redis.hsetnx(
+          config.REDIS_KEYS.RIDE_REQUESTS,
+          requestId,
+          JSON.stringify(rideRequest)
+        );
+
+        if (!success) {
+          throw new Error("Ride request ID already exists");
+        }
+      } catch (redisError) {
+        logger.error("Redis error storing ride request:", redisError);
+        throw new Error("Failed to store ride request");
       }
 
+      // Try to find drivers with radius expansion
+      const result = await this.findDriversWithExpansion(io, rideRequest);
+
+      return result;
     } catch (error) {
       logger.error("Error in findAndBroadcastToDrivers:", error);
       throw error;
@@ -190,14 +86,15 @@ class RideService {
         `Search attempt ${attempt} for ${requestId}: radius ${currentRadius}km`
       );
 
+      // Record this search attempt
       rideRequest.searchAttempts.push({
         attempt,
         radius: currentRadius,
         timestamp: new Date().toISOString(),
       });
 
-      // Find nearby drivers and filter out busy ones
-      const nearbyDrivers = await this.findAvailableDrivers(
+      // Find nearby drivers
+      const nearbyDrivers = await geoService.findNearbyDrivers(
         userLocation.latitude,
         userLocation.longitude,
         currentRadius,
@@ -205,7 +102,7 @@ class RideService {
       );
 
       logger.debug(
-        `Found ${nearbyDrivers.length} available drivers within ${currentRadius}km radius`
+        `Found ${nearbyDrivers.length} drivers within ${currentRadius}km radius`
       );
 
       if (nearbyDrivers.length > 0) {
@@ -228,7 +125,7 @@ class RideService {
           currentRadius + config.RADIUS_EXPANSION_STEP,
           config.MAX_RADIUS
         ),
-        message: `No available drivers found within ${currentRadius}km, expanding search...`,
+        message: `No drivers found within ${currentRadius}km, expanding search...`,
       });
 
       if (attempt < maxAttempts && currentRadius < config.MAX_RADIUS) {
@@ -239,6 +136,7 @@ class RideService {
         rideRequest.radius = currentRadius;
         rideRequest.version++;
 
+        // Update ride request atomically
         await this.updateRideRequestAtomic(requestId, rideRequest);
         await new Promise((resolve) => setTimeout(resolve, 2000));
       }
@@ -246,9 +144,7 @@ class RideService {
       attempt++;
     }
 
-    // No drivers found - clean up user mapping
-    await this.cleanupFailedRequest(rideRequest.userId, requestId);
-
+    // No drivers found after expansion
     rideRequest.status = "no_drivers_found";
     rideRequest.finalRadius = currentRadius;
     rideRequest.searchCompletedAt = new Date().toISOString();
@@ -266,7 +162,9 @@ class RideService {
     });
 
     logger.info(
-      `No drivers found for ${requestId} after ${attempt - 1} attempts (max radius: ${currentRadius}km)`
+      `No drivers found for ${requestId} after ${
+        attempt - 1
+      } attempts (max radius: ${currentRadius}km)`
     );
 
     return {
@@ -277,46 +175,6 @@ class RideService {
       radius: currentRadius,
       searchAttempts: attempt - 1,
     };
-  }
-
-  /**
-   * Find available drivers (not busy with other rides)
-   */
-  async findAvailableDrivers(latitude, longitude, radiusKm, vehicleType) {
-    try {
-      // Get all nearby drivers from geo service
-      const nearbyDrivers = await geoService.findNearbyDrivers(
-        latitude,
-        longitude,
-        radiusKm,
-        vehicleType
-      );
-
-      // Filter out drivers who are currently assigned to rides
-      const availableDrivers = [];
-      
-      for (const driver of nearbyDrivers) {
-        const activeRide = await this.getDriverActiveRide(driver.driverId);
-        if (!activeRide) {
-          // Double-check driver status from driver service
-          const driverProfile = await driverService.getDriverProfile(driver.driverId);
-          if (driverProfile && driverProfile.status === 'available' && driverProfile.isOnline) {
-            availableDrivers.push(driver);
-          } else {
-            logger.debug(`Driver ${driver.driverId} is not available: status=${driverProfile?.status}, online=${driverProfile?.isOnline}`);
-          }
-        } else {
-          logger.debug(`Driver ${driver.driverId} is busy with ride ${activeRide.rideId}`);
-        }
-      }
-
-      logger.debug(`Filtered ${nearbyDrivers.length} nearby drivers to ${availableDrivers.length} available drivers`);
-      return availableDrivers;
-      
-    } catch (error) {
-      logger.error("Error finding available drivers:", error);
-      return [];
-    }
   }
 
   async broadcastToFoundDrivers(io, rideRequest, nearbyDrivers, finalRadius) {
@@ -349,7 +207,7 @@ class RideService {
       driversFound: nearbyDrivers.length,
       radius: finalRadius,
       searchAttempts: rideRequest.searchAttempts.length,
-      message: `Found ${driversToNotify.length} available drivers within ${finalRadius}km`,
+      message: `Found ${driversToNotify.length} drivers within ${finalRadius}km`,
     });
 
     let notificationsSent = 0;
@@ -414,71 +272,54 @@ class RideService {
   }
 
   /**
-   * ENHANCED: Handle driver response with busy driver prevention
+   * CRITICAL: Handle driver response with atomic Redis operations to prevent race conditions
    */
   async handleDriverResponse(io, responseData) {
     const { requestId, driverId, response, driverLocation } = responseData;
-    
-    const lockKey = `processing_${requestId}`;
-    
-    try {
-      // CRITICAL CHECK: Ensure driver is not already busy
-      if (response === "accept") {
-        const driverActiveRide = await this.getDriverActiveRide(driverId);
-        if (driverActiveRide) {
-          logger.warn(`Driver ${driverId} tried to accept ride ${requestId} but is already assigned to ${driverActiveRide.rideId}`);
-          
-          // Send immediate rejection to driver
-          const driverProfile = await driverService.getDriverProfile(driverId);
-          if (driverProfile && driverProfile.socketId) {
-            io.to(driverProfile.socketId).emit("ride_request_cancelled", {
-              requestId,
-              reason: "You are already assigned to another ride",
-              timestamp: new Date().toISOString(),
-            });
-          }
-          
-          return {
-            success: false,
-            status: "driver_busy",
-            message: "Driver is already assigned to another ride",
-          };
-        }
-      }
 
+    // Create a local lock key to prevent concurrent processing
+    const lockKey = `processing_${requestId}`;
+
+    try {
+      // Check if we're already processing this request
       if (this.processingLocks.has(lockKey)) {
-        logger.warn(`Already processing response for ${requestId}, ignoring duplicate`);
+        logger.warn(
+          `Already processing response for ${requestId}, ignoring duplicate`
+        );
         return {
           success: false,
           status: "already_processing",
-          message: "Request is being processed"
+          message: "Request is being processed",
         };
       }
-      
+
+      // Set local lock
       this.processingLocks.set(lockKey, Date.now());
-      
+
+      // Use Redis distributed lock for additional safety
       const distributedLockKey = `lock:${requestId}`;
       const lockValue = `${Date.now()}_${Math.random()}`;
-      const lockTimeout = 5;
-      
+      const lockTimeout = 5; // 5 seconds
+
       const lockAcquired = await this.redis.set(
         distributedLockKey,
         lockValue,
-        'PX',
+        "PX",
         lockTimeout * 1000,
-        'NX'
+        "NX"
       );
-      
+
       if (!lockAcquired) {
         logger.warn(`Could not acquire distributed lock for ${requestId}`);
         return {
           success: false,
           status: "lock_failed",
-          message: "Could not process request at this time"
+          message: "Could not process request at this time",
         };
       }
 
       try {
+        // Get current ride request state
         const rideRequest = await this.getRideRequest(requestId);
         if (!rideRequest) {
           return {
@@ -488,11 +329,13 @@ class RideService {
           };
         }
 
+        // Critical check: If already accepted, reject immediately
         if (rideRequest.status === "accepted") {
           logger.info(
             `Driver ${driverId} tried to respond to already accepted ride ${requestId}`
           );
-          
+
+          // Send immediate cancellation to this driver
           const driverProfile = await driverService.getDriverProfile(driverId);
           if (driverProfile && driverProfile.socketId) {
             io.to(driverProfile.socketId).emit("ride_request_cancelled", {
@@ -501,7 +344,7 @@ class RideService {
               timestamp: new Date().toISOString(),
             });
           }
-          
+
           return {
             success: false,
             status: "already_accepted",
@@ -517,6 +360,7 @@ class RideService {
           };
         }
 
+        // Record the response
         rideRequest.responses[driverId] = {
           response,
           timestamp: new Date().toISOString(),
@@ -524,7 +368,7 @@ class RideService {
         };
 
         if (response === "accept") {
-          // ATOMIC OPERATION: Update ride status and assign driver
+          // ATOMIC OPERATION: Try to change status to accepted
           rideRequest.status = "accepted";
           rideRequest.acceptedBy = driverId;
           rideRequest.acceptedAt = new Date().toISOString();
@@ -534,40 +378,37 @@ class RideService {
           const estimatedArrival = Math.floor(Math.random() * 10) + 5;
           rideRequest.estimatedArrival = estimatedArrival;
 
-          // CRITICAL: Atomic operation to assign driver and update ride
+          // Use Redis transaction to ensure atomicity
           const multi = this.redis.multi();
-          
-          // Check current ride status
+
+          // Check if status is still "searching" and update atomically
           multi.hget(config.REDIS_KEYS.RIDE_REQUESTS, requestId);
-          
-          // Update ride request
           multi.hset(
             config.REDIS_KEYS.RIDE_REQUESTS,
             requestId,
             JSON.stringify(rideRequest)
           );
-          
-          // Assign driver to this ride
-          multi.hset(
-            config.REDIS_KEYS.DRIVER_ACTIVE_RIDES,
-            driverId,
-            requestId
-          );
-          
+
           const results = await multi.exec();
-          
+
           if (!results || !results[0] || !results[0][1]) {
             throw new Error("Ride request disappeared during processing");
           }
-          
+
+          // Double-check the status wasn't changed by another process
           const currentRequestData = JSON.parse(results[0][1]);
-          if (currentRequestData.status === "accepted" && currentRequestData.acceptedBy !== driverId) {
-            logger.warn(`Race condition detected: ${requestId} already accepted by ${currentRequestData.acceptedBy}`);
-            
-            // Clean up this driver's assignment
-            await this.redis.hdel(config.REDIS_KEYS.DRIVER_ACTIVE_RIDES, driverId);
-            
-            const driverProfile = await driverService.getDriverProfile(driverId);
+          if (
+            currentRequestData.status === "accepted" &&
+            currentRequestData.acceptedBy !== driverId
+          ) {
+            logger.warn(
+              `Race condition detected: ${requestId} already accepted by ${currentRequestData.acceptedBy}`
+            );
+
+            // Send cancellation to this driver
+            const driverProfile = await driverService.getDriverProfile(
+              driverId
+            );
             if (driverProfile && driverProfile.socketId) {
               io.to(driverProfile.socketId).emit("ride_request_cancelled", {
                 requestId,
@@ -575,7 +416,7 @@ class RideService {
                 timestamp: new Date().toISOString(),
               });
             }
-            
+
             return {
               success: false,
               status: "already_accepted",
@@ -583,10 +424,10 @@ class RideService {
             };
           }
 
-          // SUCCESS: Ride assigned to this driver
+          // SUCCESS: This driver got the ride
+          // Immediately broadcast acceptance to user
           io.emit("ride_accepted", {
             requestId,
-            userId: rideRequest.userId,
             driverId,
             driverLocation,
             estimatedArrival,
@@ -596,7 +437,7 @@ class RideService {
             timestamp: new Date().toISOString(),
           });
 
-          // Immediate cleanup
+          // Cancel other driver requests IMMEDIATELY and asynchronously
           setImmediate(async () => {
             try {
               await this.cancelOtherDriverRequests(
@@ -605,25 +446,29 @@ class RideService {
                 rideRequest.notifiedDrivers,
                 driverId
               );
-              
+
+              // Update driver status
               await driverService.updateDriverStatus(driverId, "busy");
             } catch (error) {
-              logger.error(`Error in post-acceptance cleanup for ${requestId}:`, error);
+              logger.error(
+                `Error in post-acceptance cleanup for ${requestId}:`,
+                error
+              );
             }
           });
 
           logger.info(
             `Ride ${requestId} accepted by driver ${driverId} - ETA: ${estimatedArrival} minutes`
           );
-          
-          return { 
-            success: true, 
-            status: "accepted", 
+
+          return {
+            success: true,
+            status: "accepted",
             estimatedArrival,
-            message: "Ride accepted successfully"
+            message: "Ride accepted successfully",
           };
-          
         } else if (response === "reject") {
+          // Handle rejection
           rideRequest.version++;
           await this.updateRideRequestAtomic(requestId, rideRequest);
 
@@ -631,14 +476,12 @@ class RideService {
           const totalResponses = Object.keys(rideRequest.responses).length;
 
           if (totalResponses >= totalNotified) {
-            const acceptedResponses = Object.values(rideRequest.responses).filter(
-              (r) => r.response === "accept"
-            );
+            const acceptedResponses = Object.values(
+              rideRequest.responses
+            ).filter((r) => r.response === "accept");
 
             if (acceptedResponses.length === 0) {
-              // All drivers rejected - clean up user mapping
-              await this.cleanupFailedRequest(rideRequest.userId, requestId);
-              
+              // All drivers rejected
               rideRequest.status = "all_rejected";
               rideRequest.rejectedAt = new Date().toISOString();
               rideRequest.version++;
@@ -647,10 +490,10 @@ class RideService {
 
               io.emit("ride_all_rejected", {
                 requestId,
-                userId: rideRequest.userId,
                 searchRadius: rideRequest.radius,
                 searchAttempts: rideRequest.searchAttempts?.length || 1,
-                message: "All nearby drivers are currently busy. Please try again.",
+                message:
+                  "All nearby drivers are currently busy. Please try again.",
                 timestamp: new Date().toISOString(),
               });
 
@@ -661,8 +504,8 @@ class RideService {
           logger.info(`Driver ${driverId} rejected ride ${requestId}`);
           return { success: true, status: "rejected" };
         }
-        
       } finally {
+        // Release distributed lock
         const script = `
           if redis.call("get", KEYS[1]) == ARGV[1] then
             return redis.call("del", KEYS[1])
@@ -670,115 +513,21 @@ class RideService {
             return 0
           end
         `;
-        
+
         await this.redis.eval(script, 1, distributedLockKey, lockValue);
       }
-      
     } catch (error) {
       logger.error("Error handling driver response:", error);
       return { success: false, status: "error", message: error.message };
     } finally {
+      // Always release local lock
       this.processingLocks.delete(lockKey);
     }
   }
 
   /**
-   * Complete a ride and free up user and driver
+   * Atomic update helper to prevent race conditions
    */
-  async completeRide(requestId, driverId, userId) {
-    try {
-      const multi = this.redis.multi();
-      
-      // Update ride status
-      const rideRequest = await this.getRideRequest(requestId);
-      if (rideRequest) {
-        rideRequest.status = "completed";
-        rideRequest.completedAt = new Date().toISOString();
-        
-        multi.hset(
-          config.REDIS_KEYS.RIDE_REQUESTS,
-          requestId,
-          JSON.stringify(rideRequest)
-        );
-      }
-      
-      // Free up user and driver
-      multi.hdel(config.REDIS_KEYS.USER_ACTIVE_REQUESTS, userId);
-      multi.hdel(config.REDIS_KEYS.DRIVER_ACTIVE_RIDES, driverId);
-      
-      await multi.exec();
-      
-      // Update driver status back to available
-      await driverService.updateDriverStatus(driverId, "available");
-      
-      logger.info(`Ride ${requestId} completed - User ${userId} and Driver ${driverId} are now free`);
-      
-      return { success: true };
-    } catch (error) {
-      logger.error(`Error completing ride ${requestId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Cancel a ride and free up resources
-   */
-  async cancelRide(requestId, reason = "User cancelled") {
-    try {
-      const rideRequest = await this.getRideRequest(requestId);
-      if (!rideRequest) {
-        return { success: false, message: "Ride not found" };
-      }
-
-      const multi = this.redis.multi();
-      
-      // Update ride status
-      rideRequest.status = "cancelled";
-      rideRequest.cancelledAt = new Date().toISOString();
-      rideRequest.cancelReason = reason;
-      
-      multi.hset(
-        config.REDIS_KEYS.RIDE_REQUESTS,
-        requestId,
-        JSON.stringify(rideRequest)
-      );
-      
-      // Free up user
-      multi.hdel(config.REDIS_KEYS.USER_ACTIVE_REQUESTS, rideRequest.userId);
-      
-      // If driver was assigned, free them up
-      if (rideRequest.acceptedBy) {
-        multi.hdel(config.REDIS_KEYS.DRIVER_ACTIVE_RIDES, rideRequest.acceptedBy);
-      }
-      
-      await multi.exec();
-      
-      // Update driver status if assigned
-      if (rideRequest.acceptedBy) {
-        await driverService.updateDriverStatus(rideRequest.acceptedBy, "available");
-      }
-      
-      logger.info(`Ride ${requestId} cancelled: ${reason}`);
-      
-      return { success: true };
-    } catch (error) {
-      logger.error(`Error cancelling ride ${requestId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Clean up failed request mappings
-   */
-  async cleanupFailedRequest(userId, requestId) {
-    try {
-      await this.redis.hdel(config.REDIS_KEYS.USER_ACTIVE_REQUESTS, userId);
-      logger.debug(`Cleaned up failed request mapping for user ${userId}, request ${requestId}`);
-    } catch (error) {
-      logger.error(`Error cleaning up failed request for user ${userId}:`, error);
-    }
-  }
-
   async updateRideRequestAtomic(requestId, rideRequest) {
     try {
       await this.redis.hset(
@@ -805,6 +554,9 @@ class RideService {
     }
   }
 
+  /**
+   * OPTIMIZED: Cancel other driver requests immediately with batch operations
+   */
   async cancelOtherDriverRequests(
     io,
     requestId,
@@ -820,6 +572,7 @@ class RideService {
         `Cancelling ride request ${requestId} for ${driversToCancel.length} other drivers`
       );
 
+      // Use Promise.allSettled for concurrent cancellations
       const cancellationPromises = driversToCancel.map(async (driverId) => {
         try {
           const driverProfile = await driverService.getDriverProfile(driverId);
@@ -829,21 +582,29 @@ class RideService {
               reason: "Another driver accepted the ride",
               timestamp: new Date().toISOString(),
             });
-            logger.debug(`Cancelled request ${requestId} for driver ${driverId}`);
+            logger.debug(
+              `Cancelled request ${requestId} for driver ${driverId}`
+            );
             return { success: true, driverId };
           }
           return { success: false, driverId, reason: "Driver not found" };
         } catch (error) {
-          logger.error(`Failed to cancel request for driver ${driverId}:`, error);
+          logger.error(
+            `Failed to cancel request for driver ${driverId}:`,
+            error
+          );
           return { success: false, driverId, error: error.message };
         }
       });
 
       const results = await Promise.allSettled(cancellationPromises);
-      const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-      
-      logger.info(`Successfully cancelled ${successful}/${driversToCancel.length} driver requests for ${requestId}`);
-      
+      const successful = results.filter(
+        (r) => r.status === "fulfilled" && r.value.success
+      ).length;
+
+      logger.info(
+        `Successfully cancelled ${successful}/${driversToCancel.length} driver requests for ${requestId}`
+      );
     } catch (error) {
       logger.error("Error cancelling other driver requests:", error);
     }
@@ -856,9 +617,6 @@ class RideService {
         return;
       }
 
-      // Clean up user mapping on timeout
-      await this.cleanupFailedRequest(rideRequest.userId, requestId);
-
       rideRequest.status = "timeout";
       rideRequest.timeoutAt = new Date().toISOString();
       rideRequest.version++;
@@ -867,10 +625,10 @@ class RideService {
 
       io.emit("ride_request_timeout", {
         requestId,
-        userId: rideRequest.userId,
         searchRadius: rideRequest.radius,
         searchAttempts: rideRequest.searchAttempts?.length || 1,
-        message: "No drivers responded within the time limit. Please try again.",
+        message:
+          "No drivers responded within the time limit. Please try again.",
         timestamp: new Date().toISOString(),
       });
 
@@ -890,6 +648,7 @@ class RideService {
       logger.error("Error handling ride timeout:", error);
     }
   }
+
   async cleanupOldRequests() {
     try {
       const allRequests = await this.redis.hgetall(

@@ -70,7 +70,7 @@ const baseConfig = {
 const environmentConfigs = {
   development: {
     ...baseConfig,
-    DEFAULT_RADIUS: 30,
+    DEFAULT_RADIUS: 5,
     MAX_RADIUS: 50,
     LOCATION_UPDATE_INTERVAL: 10,
     DRIVER_RESPONSE_TIMEOUT: 45,
