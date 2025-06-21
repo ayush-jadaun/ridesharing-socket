@@ -1,0 +1,31 @@
+{
+  "name": "evai",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/app.js",
+  "scripts": {
+    "test": "jest",
+    "test:basic": "node test/manual-tests/test-basic-flow.js",
+    "test:drivers": "node test/simulators/driverSimulator.js",
+    "test:load": "node test/simulators/loadTester.js",
+    "dev": "nodemon src/app.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "ioredis": "^5.6.1",
+    "jest": "^30.0.2",
+    "joi": "^17.13.3",
+    "ngeohash": "^0.6.3",
+    "nodemon": "^3.1.10",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "winston": "^3.17.0"
+  }
+}

@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🚗 Ride Matching System - Advanced Test Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Leaflet.js for Map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #333; }
+        .header { background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); padding: 20px; box-shadow: 0 2px 20px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 100; }
+        .header h1 { text-align: center; color: #2c3e50; font-size: 2.2em; font-weight: 300; }
+        .header .subtitle { text-align: center; color: #7f8c8d; margin-top: 5px; font-size: 1.1em; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .section { background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); margin: 10px 0; padding: 25px; border-radius: 15px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); transition: transform 0.3s ease, box-shadow 0.3s ease; }
+        .section:hover { transform: translateY(-5px); box-shadow: 0 12px 40px rgba(0,0,0,0.15); }
+        .section h2 { color: #2c3e50; margin-bottom: 20px; font-size: 1.5em; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        .full-width { grid-column: 1 / -1; }
+        .status { padding: 15px; margin: 15px 0; border-radius: 10px; font-weight: 500; display: flex; align-items: center; gap: 10px; }
+        .success { background: linear-gradient(135deg, #d4edda, #c3e6cb); color: #155724; border-left: 4px solid #28a745; }
+        .error { background: linear-gradient(135deg, #f8d7da, #f5c6cb); color: #721c24; border-left: 4px solid #dc3545; }
+        .info { background: linear-gradient(135deg, #d1ecf1, #bee5eb); color: #0c5460; border-left: 4px solid #17a2b8; }
+        .warning { background: linear-gradient(135deg, #fff3cd, #ffeaa7); color: #856404; border-left: 4px solid #ffc107; }
+        button { padding: 12px 24px; margin: 8px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; transition: all 0.3s ease; position: relative; overflow: hidden; }
+        button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.2); }
+        button:active { transform: translateY(0); }
+        .btn-primary { background: linear-gradient(135deg, #007bff, #0056b3); color: white; }
+        .btn-success { background: linear-gradient(135deg, #28a745, #1e7e34); color: white; }
+        .btn-danger { background: linear-gradient(135deg, #dc3545, #c82333); color: white; }
+        .btn-warning { background: linear-gradient(135deg, #ffc107, #e0a800); color: black; }
+        .btn-info { background: linear-gradient(135deg, #17a2b8, #138496); color: white; }
+        .logs { height: 400px; overflow-y: auto; background: #2c3e50; color: #ecf0f1; padding: 20px; border-radius: 10px; font-family: 'Courier New', monospace; font-size: 14px; line-height: 1.4; scroll-behavior: smooth; }
+        .logs::-webkit-scrollbar { width: 8px; }
+        .logs::-webkit-scrollbar-track { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        .logs::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 4px; }
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
+        .metric-card { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .metric-value { font-size: 2.5em; font-weight: bold; margin-bottom: 5px; }
+        .metric-label { font-size: 0.9em; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px; }
+        .controls-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+        .progress-bar { width: 100%; height: 8px; background: #ecf0f1; border-radius: 4px; overflow: hidden; margin: 15px 0; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #3498db, #2ecc71); width: 0%; transition: width 0.3s ease; }
+        .driver-list { max-height: 200px; overflow-y: auto; background: #f8f9fa; border-radius: 8px; padding: 15px; }
+        .driver-item { display: flex; justify-content: between; align-items: center; padding: 8px 0; border-bottom: 1px solid #dee2e6; }
+        .driver-item:last-child { border-bottom: none; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 10px; }
+        .status-online { background: #28a745; }
+        .status-busy { background: #ffc107; }
+        .status-offline { background: #dc3545; }
+        .chart-container { position: relative; height: 300px; margin: 20px 0; }
+        #map { height: 350px; width: 100%; border-radius: 15px; margin: 20px 0; box-shadow: 0 8px 32px rgba(0,0,0,0.15); border: 2px solid #3498db; }
+        @media (max-width: 768px) { .container { grid-template-columns: 1fr; padding: 10px; } .section { padding: 15px; } .controls-grid { grid-template-columns: 1fr; } button { width: 100%; margin: 5px 0; } }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        .notification { position: fixed; top: 20px; right: 20px; padding: 15px 20px; border-radius: 8px; color: white; font-weight: 600; z-index: 1000; transform: translateX(400px); transition: transform 0.3s ease; }
+        .notification.show { transform: translateX(0); }
+        .notification.success { background: #28a745; }
+        .notification.error { background: #dc3545; }
+        .notification.info { background: #17a2b8; }
+        .notification.warning { background: #ffc107; color: black; }
+        .loading { display: inline-block; width: 20px; height: 20px; border: 2px solid #f3f3f3; border-top: 2px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚗 Ride Matching System</h1>
+        <div class="subtitle">Advanced Real-time Test Dashboard</div>
+    </div>
+    <div class="container">
+        <!-- System Overview -->
+        <div class="section full-width">
+            <h2>📊 System Overview</h2>
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-value" id="active-drivers">0</div>
+                    <div class="metric-label">Active Drivers</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="connected-sockets">0</div>
+                    <div class="metric-label">Connected Sockets</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="total-rides">0</div>
+                    <div class="metric-label">Total Rides</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value" id="success-rate">0%</div>
+                    <div class="metric-label">Success Rate</div>
+                </div>
+            </div>
+            <div id="system-status" class="status info">
+                <span class="loading"></span> Checking system status...
+            </div>
+            <div class="controls-grid">
+                <button class="btn-primary" onclick="checkHealth()">🔄 Refresh Status</button>
+                <button class="btn-info" onclick="getSystemStats()">📈 Get Stats</button>
+                <button class="btn-warning" onclick="exportLogs()">📥 Export Logs</button>
+            </div>
+        </div>
+        <!-- MAP SECTION -->
+        <div class="section full-width">
+            <h2>🗺️ Live Map: Drivers & Users</h2>
+            <div id="map"></div>
+        </div>
+        <!-- Driver Management -->
+        <div class="section">
+            <h2>👥 Driver Management</h2>
+            <div id="driver-status" class="status info">No drivers connected</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="driver-progress"></div>
+            </div>
+            <div class="controls-grid">
+                <button class="btn-success" onclick="startDrivers()">🚀 Start 5 Drivers</button>
+                <button class="btn-warning" onclick="addMoreDrivers()">➕ Add 3 More</button>
+                <button class="btn-info" onclick="simulateMovement()">🏃 Simulate Movement</button>
+                <button class="btn-danger" onclick="stopDrivers()">🛑 Stop All</button>
+            </div>
+            <div class="driver-list" id="driver-list">
+                <div style="text-align: center; color: #6c757d; padding: 20px;">
+                    No drivers active
+                </div>
+            </div>
+        </div>
+        <!-- Ride Testing -->
+        <div class="section">
+            <h2>🚕 Ride Testing</h2>
+            <div id="user-status" class="status info">Ready to simulate rides</div>
+            <div class="controls-grid">
+                <button class="btn-success" onclick="simulateRide()">🎯 Single Ride</button>
+                <button class="btn-warning" onclick="simulateMultipleRides()">🚀 3 Rides Sequential</button>
+                <button class="btn-info" onclick="simulateConcurrentRides()">⚡ 3 Rides Concurrent</button>
+                <button class="btn-primary" onclick="stressTest()">💪 Stress Test (10 rides)</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="rideChart"></canvas>
+            </div>
+        </div>
+        <!-- Live Logs -->
+        <div class="section full-width">
+            <h2>📝 Live System Logs</h2>
+            <div class="controls-grid" style="margin-bottom: 15px;">
+                <button class="btn-primary" onclick="clearLogs()">🗑️ Clear Logs</button>
+                <button class="btn-info" onclick="toggleAutoScroll()">📜 Auto Scroll: <span id="auto-scroll-status">ON</span></button>
+                <button class="btn-warning" onclick="filterLogs()">🔍 Filter Logs</button>
+                <button class="btn-success" onclick="pauseLogs()">⏸️ <span id="pause-status">Pause</span></button>
+            </div>
+            <div id="logs" class="logs">
+                <div style="color: #3498db;">[Dashboard] 🚀 Advanced Dashboard initialized</div>
+                <div style="color: #2ecc71;">[Dashboard] ✅ Ready for testing - Click buttons above to start</div>
+                <div style="color: #f39c12;">[Dashboard] 💡 Tip: Start with "Start 5 Drivers" then try "Single Ride"</div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // ------ MAP LOGIC ------
+        let map, driverMarkers = {}, userMarkers = {};
+        const delhiCenter = [28.6139, 77.2090];
+        function initMap() {
+            map = L.map('map').setView(delhiCenter, 12);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+        }
+        function updateDriverMarker(driver) {
+            const key = driver.id;
+            const icon = L.icon({
+                iconUrl: 'https://cdn-icons-png.flaticon.com/512/854/854894.png',
+                iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -32]
+            });
+            if (driverMarkers[key]) {
+                driverMarkers[key].setLatLng([driver.lat, driver.lng]);
+            } else {
+                driverMarkers[key] = L.marker([driver.lat, driver.lng], {icon})
+                    .addTo(map)
+                    .bindPopup(`<b>🚗 ${driver.name}</b><br>${driver.vehicle}<br>⭐${driver.rating}`);
+            }
+        }
+        function removeDriverMarker(driver) {
+            const key = driver.id;
+            if (driverMarkers[key]) {
+                map.removeLayer(driverMarkers[key]);
+                delete driverMarkers[key];
+            }
+        }
+        function updateUserMarker(user) {
+            const key = user.id;
+            const icon = L.icon({
+                iconUrl: 'https://cdn-icons-png.flaticon.com/512/1946/1946429.png',
+                iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -28]
+            });
+            if (userMarkers[key]) {
+                userMarkers[key].setLatLng([user.lat, user.lng]);
+            } else {
+                userMarkers[key] = L.marker([user.lat, user.lng], {icon})
+                    .addTo(map)
+                    .bindPopup(`<b>👤 ${user.name}</b><br>Wants: ${user.vehicle}<br>Dest: ${user.destination}`);
+            }
+        }
+        function removeUserMarker(user) {
+            const key = user.id;
+            if (userMarkers[key]) {
+                map.removeLayer(userMarkers[key]);
+                delete userMarkers[key];
+            }
+        }
+        // ------ DASHBOARD LOGIC ------
+        let driverSockets = [];
+        let isDriverSimulationRunning = false;
+        let autoScroll = true;
+        let logsPaused = false;
+        let movementInterval = null;
+        let stats = {
+            totalRides: 0, successfulRides: 0, failedRides: 0, activeDrivers: 0, connectedSockets: 0
+        };
+        let rideChart;
+        const chartData = {
+            labels: [],
+            datasets: [{
+                label: 'Successful Rides',
+                data: [],
+                borderColor: '#28a745',
+                backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                tension: 0.4
+            }, {
+                label: 'Failed Rides',
+                data: [],
+                borderColor: '#dc3545',
+                backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                tension: 0.4
+            }]
+        };
+        const mockDrivers = [
+            { id: 'driver_001', name: 'Rajesh Kumar', lat: 28.6139, lng: 77.2090, vehicle: 'car', rating: 4.8, phone: '+91-98765-43210' },
+            { id: 'driver_002', name: 'Priya Sharma', lat: 28.6289, lng: 77.2065, vehicle: 'bike', rating: 4.6, phone: '+91-98765-43211' },
+            { id: 'driver_003', name: 'Amit Singh', lat: 28.6517, lng: 77.2219, vehicle: 'auto', rating: 4.7, phone: '+91-98765-43212' },
+            { id: 'driver_004', name: 'Sunita Devi', lat: 28.5355, lng: 77.3910, vehicle: 'car', rating: 4.9, phone: '+91-98765-43213' },
+            { id: 'driver_005', name: 'Mohammad Ali', lat: 28.4595, lng: 77.0266, vehicle: 'bike', rating: 4.5, phone: '+91-98765-43214' },
+            { id: 'driver_006', name: 'Kavita Patel', lat: 28.7041, lng: 77.1025, vehicle: 'car', rating: 4.8, phone: '+91-98765-43215' },
+            { id: 'driver_007', name: 'Ravi Gupta', lat: 28.5494, lng: 77.2500, vehicle: 'auto', rating: 4.4, phone: '+91-98765-43216' },
+            { id: 'driver_008', name: 'Deepika Yadav', lat: 28.6692, lng: 77.4538, vehicle: 'bike', rating: 4.7, phone: '+91-98765-43217' }
+        ];
+        const mockUsers = [
+            { id: 'user_001', name: 'Ayush Sharma', lat: 28.6129, lng: 77.2295, vehicle: 'car', destination: 'Connaught Place' },
+            { id: 'user_002', name: 'Neha Gupta', lat: 28.5355, lng: 77.3910, vehicle: 'bike', destination: 'India Gate' },
+            { id: 'user_003', name: 'Rohit Kumar', lat: 28.4595, lng: 77.0266, vehicle: 'auto', destination: 'Red Fort' },
+            { id: 'user_004', name: 'Anita Desai', lat: 28.7041, lng: 77.1025, vehicle: 'car', destination: 'Lotus Temple' },
+            { id: 'user_005', name: 'Vikram Singh', lat: 28.6692, lng: 77.4538, vehicle: 'bike', destination: 'Akshardham' }
+        ];
+        function log(message, type = 'info') {
+            if (logsPaused) return;
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('logs');
+            const logEntry = document.createElement('div');
+            let icon = '📝', color = '#ecf0f1';
+            switch(type) {
+                case 'error': icon = '❌'; color = '#e74c3c'; break;
+                case 'success': icon = '✅'; color = '#2ecc71'; break;
+                case 'warning': icon = '⚠️'; color = '#f39c12'; break;
+                case 'info': icon = 'ℹ️'; color = '#3498db'; break;
+                case 'driver': icon = '🚗'; color = '#9b59b6'; break;
+                case 'user': icon = '👤'; color = '#1abc9c'; break;
+            }
+            logEntry.innerHTML = `<span style="color: #bdc3c7;">[${timestamp}]</span> <span style="color: ${color};">${icon} ${message}</span>`;
+            logEntry.style.marginBottom = '8px';
+            logEntry.style.paddingLeft = '10px';
+            logEntry.style.borderLeft = `2px solid ${color}`;
+            logDiv.appendChild(logEntry);
+            if (autoScroll) logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.classList.add('show'), 100);
+            setTimeout(() => { notification.classList.remove('show'); setTimeout(() => document.body.removeChild(notification), 300); }, 3000);
+        }
+        function updateMetrics() {
+            document.getElementById('active-drivers').textContent = stats.activeDrivers;
+            document.getElementById('connected-sockets').textContent = stats.connectedSockets;
+            document.getElementById('total-rides').textContent = stats.totalRides;
+            const successRate = stats.totalRides > 0 ? Math.round((stats.successfulRides / stats.totalRides) * 100) : 0;
+            document.getElementById('success-rate').textContent = `${successRate}%`;
+            const progress = Math.min((stats.activeDrivers / 8) * 100, 100);
+            document.getElementById('driver-progress').style.width = `${progress}%`;
+        }
+        function updateChart() {
+            const now = new Date().toLocaleTimeString();
+            chartData.labels.push(now);
+            chartData.datasets[0].data.push(stats.successfulRides);
+            chartData.datasets[1].data.push(stats.failedRides);
+            if (chartData.labels.length > 10) {
+                chartData.labels.shift();
+                chartData.datasets[0].data.shift();
+                chartData.datasets[1].data.shift();
+            }
+            if (rideChart) rideChart.update();
+        }
+        async function checkHealth() {
+            try {
+                log('Checking system health...', 'info');
+                const response = await fetch('/health');
+                const health = await response.json();
+                const statusDiv = document.getElementById('system-status');
+                if (health.status === 'healthy') {
+                    statusDiv.className = 'status success';
+                    statusDiv.innerHTML = `✅ System Healthy - Uptime: ${Math.round(health.uptime)}s, Memory: ${Math.round(health.stats.memoryUsage.heapUsed / 1024 / 1024)}MB`;
+                    stats.activeDrivers = health.stats.activeDrivers;
+                    stats.connectedSockets = health.stats.connectedSockets;
+                    updateMetrics();
+                    showNotification('System is healthy!', 'success');
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.innerHTML = `❌ System Unhealthy: ${health.error || 'Unknown error'}`;
+                    showNotification('System health check failed!', 'error');
+                }
+                log(`Health check: ${health.status} - ${health.stats?.activeDrivers || 0} drivers active`, 'success');
+            } catch (error) {
+                const statusDiv = document.getElementById('system-status');
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `❌ Cannot connect to server - Is it running on port 3000?`;
+                log(`Health check failed: ${error.message}`, 'error');
+                showNotification('Cannot connect to server!', 'error');
+            }
+        }
+        async function getSystemStats() {
+            try {
+                const response = await fetch('/stats');
+                const data = await response.json();
+                log(`📊 System Stats: Memory: ${Math.round(data.system.memory.heapUsed / 1024 / 1024)}MB, CPU: ${JSON.stringify(data.system.cpu)}`, 'info');
+                showNotification('System stats retrieved!', 'info');
+            } catch (error) {
+                log(`Failed to get system stats: ${error.message}`, 'error');
+                showNotification('Failed to get system stats!', 'error');
+            }
+        }
+        function startDrivers() {
+            if (isDriverSimulationRunning) {
+                log('Driver simulation already running', 'warning');
+                showNotification('Driver simulation already running!', 'warning');
+                return;
+            }
+            log('🚀 Starting driver simulation...', 'driver');
+            const driversToStart = mockDrivers.slice(0, 5);
+            driversToStart.forEach(driver => { createDriver(driver); });
+            isDriverSimulationRunning = true;
+            updateDriverStatus();
+            showNotification('Started 5 drivers!', 'success');
+        }
+        function addMoreDrivers() {
+            if (!isDriverSimulationRunning) {
+                log('Start basic drivers first', 'warning');
+                showNotification('Start basic drivers first!', 'warning');
+                return;
+            }
+            log('➕ Adding more drivers...', 'driver');
+            const additionalDrivers = mockDrivers.slice(5, 8);
+            additionalDrivers.forEach(driver => { createDriver(driver); });
+            updateDriverStatus();
+            showNotification('Added 3 more drivers!', 'success');
+        }
+        function createDriver(driverData) {
+            const driverSocket = io();
+            const driver = {
+                ...driverData,
+                socket: driverSocket,
+                connected: false,
+                status: 'offline',
+                totalRides: 0,
+                lastLocationUpdate: new Date()
+            };
+            driverSocket.on('connect', () => {
+                log(`🚗 Driver ${driverData.name} connected`, 'driver');
+                driverSocket.emit('driver_register', {
+                    driverId: driverData.id,
+                    latitude: driverData.lat,
+                    longitude: driverData.lng,
+                    vehicleType: driverData.vehicle,
+                    rating: driverData.rating,
+                    driverName: driverData.name,
+                    vehicleNumber: `DL${Math.floor(Math.random() * 9999).toString().padStart(4, '0')}`
+                });
+            });
+            driverSocket.on('driver_registered', (data) => {
+                driver.connected = true;
+                driver.status = 'available';
+                log(`✅ Driver ${driverData.name} registered successfully (${driverData.vehicle}, ⭐${driverData.rating})`, 'success');
+                updateDriverList();
+                updateDriverMarker(driver);
+                setInterval(() => {
+                    if (driver.connected && driver.status !== 'offline') {
+                        const newLat = driverData.lat + (Math.random() - 0.5) * 0.01;
+                        const newLng = driverData.lng + (Math.random() - 0.5) * 0.01;
+                        driver.lat = newLat;
+                        driver.lng = newLng;
+                        updateDriverMarker(driver);
+                        driver.socket.emit('driver_location_update', {
+                            driverId: driver.id,
+                            latitude: newLat,
+                            longitude: newLng,
+                            speed: Math.random() * 60,
+                            heading: Math.random() * 360
+                        });
+                        driver.lastLocationUpdate = new Date();
+                    }
+                }, 15000);
+            });
+            driverSocket.on('new_ride_request', (rideData) => {
+                log(`🚨 Driver ${driverData.name} received ride request (${rideData.distance?.toFixed(2)}km away)`, 'warning');
+                driver.status = 'busy';
+                updateDriverList();
+                const responseTime = Math.random() * 8000 + 2000;
+                const acceptChance = Math.min(0.9, driverData.rating / 5);
+                setTimeout(() => {
+                    const response = Math.random() < acceptChance ? 'accept' : 'reject';
+                    driverSocket.emit('ride_response', {
+                        requestId: rideData.requestId,
+                        driverId: driverData.id,
+                        response: response,
+                        driverLocation: { latitude: driver.lat, longitude: driver.lng }
+                    });
+                    if (response === 'accept') {
+                        driver.totalRides++;
+                        driver.status = 'on_trip';
+                    } else {
+                        driver.status = 'available';
+                    }
+                    log(`${response === 'accept' ? '✅' : '❌'} Driver ${driverData.name} ${response}ed ride`, response === 'accept' ? 'success' : 'warning');
+                    updateDriverList();
+                }, responseTime);
+            });
+            driverSocket.on('ride_request_cancelled', (data) => {
+                log(`🚫 Ride request cancelled for driver ${driverData.name}`, 'info');
+                driver.status = 'available';
+                updateDriverList();
+            });
+            driverSocket.on('disconnect', () => {
+                driver.connected = false;
+                driver.status = 'offline';
+                log(`🔌 Driver ${driverData.name} disconnected`, 'warning');
+                removeDriverMarker(driver);
+                updateDriverList();
+            });
+            driverSockets.push(driver);
+        }
+        function simulateMovement() {
+            if (movementInterval) {
+                clearInterval(movementInterval);
+                movementInterval = null;
+                log('🛑 Stopped driver movement simulation', 'info');
+                return;
+            }
+            log('🏃 Starting realistic driver movement simulation...', 'driver');
+            movementInterval = setInterval(() => {
+                driverSockets.forEach(driver => {
+                    if (driver.connected && driver.status !== 'offline') {
+                        const speed = driver.status === 'on_trip' ? 0.003 : 0.001;
+                        const newLat = driver.lat + (Math.random() - 0.5) * speed;
+                        const newLng = driver.lng + (Math.random() - 0.5) * speed;
+                        driver.lat = newLat;
+                        driver.lng = newLng;
+                        updateDriverMarker(driver);
+                        driver.socket.emit('driver_location_update', {
+                            driverId: driver.id,
+                            latitude: newLat,
+                            longitude: newLng,
+                            speed: Math.random() * (driver.status === 'on_trip' ? 80 : 40),
+                            heading: Math.random() * 360
+                        });
+                    }
+                });
+            }, 5000);
+            showNotification('Started driver movement simulation!', 'info');
+        }
+        function stopDrivers() {
+            log('🛑 Stopping all drivers...', 'warning');
+            driverSockets.forEach(driver => {
+                if (driver.socket) driver.socket.disconnect();
+                removeDriverMarker(driver);
+            });
+            if (movementInterval) { clearInterval(movementInterval); movementInterval = null; }
+            driverSockets = [];
+            isDriverSimulationRunning = false;
+            updateDriverStatus();
+            updateDriverList();
+            log('All drivers stopped', 'success');
+            showNotification('All drivers stopped!', 'info');
+        }
+        function updateDriverStatus() {
+            const connectedDrivers = driverSockets.filter(d => d.connected).length;
+            const statusDiv = document.getElementById('driver-status');
+            if (connectedDrivers > 0) {
+                statusDiv.className = 'status success';
+                statusDiv.innerHTML = `✅ ${connectedDrivers} drivers active - ${driverSockets.filter(d => d.status === 'available').length} available, ${driverSockets.filter(d => d.status === 'busy' || d.status === 'on_trip').length} busy`;
+            } else {
+                statusDiv.className = 'status info';
+                statusDiv.innerHTML = 'No drivers connected';
+            }
+            stats.activeDrivers = connectedDrivers;
+            updateMetrics();
+        }
+        function updateDriverList() {
+            const driverListDiv = document.getElementById('driver-list');
+            if (driverSockets.length === 0) {
+                driverListDiv.innerHTML = '<div style="text-align: center; color: #6c757d; padding: 20px;">No drivers active</div>';
+                return;
+            }
+            driverListDiv.innerHTML = driverSockets.map(driver => `
+                <div class="driver-item">
+                    <div style="display: flex; align-items: center;">
+                        <div class="status-dot status-${driver.status === 'available' ? 'online' : driver.status === 'offline' ? 'offline' : 'busy'}"></div>
+                        <div>
+                            <strong>${driver.name}</strong><br>
+                            <small>${driver.vehicle} • ⭐${driver.rating} • 🚕${driver.totalRides} rides</small>
+                        </div>
+                    </div>
+                    <div style="text-align: right; font-size: 0.8em; color: #6c757d;">
+                        ${driver.status}<br>
+                        <small>${driver.lastLocationUpdate?.toLocaleTimeString() || 'Never'}</small>
+                    </div>
+                </div>
+            `).join('');
+        }
+        function simulateRide() {
+            const user = mockUsers[Math.floor(Math.random() * mockUsers.length)];
+            updateUserMarker(user);
+            log(`👤 User ${user.name} requesting ride to ${user.destination}...`, 'user');
+            const userSocket = io();
+            const startTime = Date.now();
+            let rideAccepted = false;
+            userSocket.on('connect', () => {
+                userSocket.emit('find_nearby_drivers', {
+                    userId: user.id,
+                    latitude: user.lat,
+                    longitude: user.lng,
+                    vehicleType: user.vehicle,
+                    pickupAddress: 'Test Pickup Location',
+                    dropoffAddress: user.destination
+                });
+            });
+            userSocket.on('search_expansion', (data) => {
+                log(`🔍 Expanding search for ${user.name}: ${data.currentRadius}km → ${data.nextRadius}km (attempt ${data.searchAttempt}/${data.maxAttempts})`, 'info');
+            });
+            userSocket.on('drivers_found', (data) => {
+                const responseTime = Date.now() - startTime;
+                log(`🎯 Found ${data.driversNotified} drivers for ${user.name} (${data.radius}km radius, ${data.searchAttempts} attempts, ${responseTime}ms)`, 'success');
+                updateUserStatus(`Found ${data.driversNotified} drivers - waiting for response...`);
+            });
+            userSocket.on('ride_accepted', (data) => {
+                const responseTime = Date.now() - startTime;
+                rideAccepted = true;
+                stats.totalRides++;
+                stats.successfulRides++;
+                log(`🎉 Ride accepted for ${user.name} by driver ${data.driverId} - ETA: ${data.estimatedArrival}min (${responseTime}ms total)`, 'success');
+                updateUserStatus(`Ride accepted! Driver arriving in ${data.estimatedArrival} minutes`);
+                updateMetrics();
+                updateChart();
+                showNotification(`Ride accepted for ${user.name}!`, 'success');
+                setTimeout(() => { userSocket.disconnect(); removeUserMarker(user); }, 2000);
+            });
+            userSocket.on('no_drivers_found', (data) => {
+                const responseTime = Date.now() - startTime;
+                stats.totalRides++;
+                stats.failedRides++;
+                log(`😞 No drivers found for ${user.name} within ${data.searchRadius}km after ${data.totalAttempts} attempts (${responseTime}ms)`, 'error');
+                updateUserStatus(`No drivers available within ${data.searchRadius}km`);
+                updateMetrics();
+                updateChart();
+                showNotification(`No drivers found for ${user.name}`, 'error');
+                setTimeout(() => { userSocket.disconnect(); removeUserMarker(user); }, 2000);
+            });
+            userSocket.on('ride_all_rejected', (data) => {
+                const responseTime = Date.now() - startTime;
+                if (!rideAccepted) { stats.totalRides++; stats.failedRides++; }
+                log(`😔 All drivers rejected ride for ${user.name} (${responseTime}ms)`, 'warning');
+                updateUserStatus(`All drivers busy - please try again`);
+                updateMetrics();
+                updateChart();
+                showNotification(`All drivers busy for ${user.name}`, 'warning');
+                setTimeout(() => { userSocket.disconnect(); removeUserMarker(user); }, 2000);
+            });
+            userSocket.on('ride_request_timeout', (data) => {
+                const responseTime = Date.now() - startTime;
+                if (!rideAccepted) { stats.totalRides++; stats.failedRides++; }
+                log(`⏰ Ride request timed out for ${user.name} (${responseTime}ms)`, 'error');
+                updateUserStatus(`Request timed out - no driver response`);
+                updateMetrics();
+                updateChart();
+                showNotification(`Request timed out for ${user.name}`, 'error');
+                setTimeout(() => { userSocket.disconnect(); removeUserMarker(user); }, 2000);
+            });
+        }
+        async function simulateMultipleRides() {
+            log('🚀 Starting sequential ride simulation...', 'user');
+            updateUserStatus('Running sequential ride tests...');
+            showNotification('Starting 3 sequential rides', 'info');
+            for (let i = 0; i < 3; i++) {
+                log(`--- Sequential Ride ${i + 1}/3 ---`, 'user');
+                simulateRide();
+                await new Promise(resolve => setTimeout(resolve, 8000));
+            }
+        }
+        // In your test-dashboard.html, update the simulateConcurrentRides function:
+
+function simulateConcurrentRides() {
+    log('⚡ Starting concurrent ride simulation...', 'user');
+    updateUserStatus('Running concurrent ride tests...');
+    showNotification('Starting 3 concurrent rides', 'info');
+    
+    // Use the new method that ensures unique user IDs
+    userSim.simulateConcurrentRequests(3).then(results => {
+        console.log('Concurrent results:', results);
+        updateUserStatus('Concurrent ride tests completed');
+        
+        // Update stats
+        results.forEach(result => {
+            if (result.status === 'accepted') {
+                stats.successfulRides++;
+            } else {
+                stats.failedRides++;
+            }
+            stats.totalRides++;
+        });
+        
+        updateMetrics();
+        updateChart();
+    }).catch(error => {
+        console.error('Concurrent rides failed:', error);
+        updateUserStatus('Concurrent ride tests failed');
+    });
+}
+        async function stressTest() {
+            log('💪 Starting stress test - 10 concurrent rides...', 'user');
+            updateUserStatus('Running stress test - 10 rides...');
+            showNotification('Starting stress test!', 'warning');
+            const promises = [];
+            for (let i = 0; i < 10; i++) {
+                promises.push(new Promise(resolve => {
+                    setTimeout(() => {
+                        log(`--- Stress Test Ride ${i + 1}/10 ---`, 'user');
+                        simulateRide();
+                        resolve();
+                    }, i * 500);
+                }));
+            }
+            await Promise.all(promises);
+            log('💪 Stress test completed!', 'success');
+        }
+        function updateUserStatus(message) {
+            const statusDiv = document.getElementById('user-status');
+            statusDiv.className = 'status info';
+            statusDiv.innerHTML = message;
+        }
+        function clearLogs() {
+            document.getElementById('logs').innerHTML = '';
+            log('Logs cleared', 'info');
+        }
+        function toggleAutoScroll() {
+            autoScroll = !autoScroll;
+            document.getElementById('auto-scroll-status').textContent = autoScroll ? 'ON' : 'OFF';
+            log(`Auto-scroll ${autoScroll ? 'enabled' : 'disabled'}`, 'info');
+        }
+        function pauseLogs() {
+            logsPaused = !logsPaused;
+            document.getElementById('pause-status').textContent = logsPaused ? 'Resume' : 'Pause';
+            if (!logsPaused) log('Logging resumed', 'info');
+        }
+        function filterLogs() {
+            const filter = prompt('Enter filter keyword (leave empty to show all):');
+            if (filter === null) return;
+            const logEntries = document.getElementById('logs').children;
+            for (let entry of logEntries) {
+                if (filter === '' || entry.textContent.toLowerCase().includes(filter.toLowerCase())) {
+                    entry.style.display = 'block';
+                } else {
+                    entry.style.display = 'none';
+                }
+            }
+            log(`Applied filter: "${filter}"`, 'info');
+        }
+        function exportLogs() {
+            const logs = document.getElementById('logs').textContent;
+            const blob = new Blob([logs], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `ride-matching-logs-${new Date().toISOString().slice(0, 19)}.txt`;
+            a.click();
+            URL.revokeObjectURL(url);
+            log('Logs exported successfully', 'success');
+            showNotification('Logs exported!', 'success');
+        }
+        function initialize() {
+            const ctx = document.getElementById('rideChart').getContext('2d');
+            rideChart = new Chart(ctx, {
+                type: 'line',
+                data: chartData,
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { title: { display: true, text: 'Ride Success/Failure Over Time' } },
+                    scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+                }
+            });
+            setInterval(() => { if (!logsPaused) { checkHealth(); } }, 30000);
+            checkHealth();
+            log('🚀 Advanced Dashboard fully initialized', 'success');
+            log('💡 Features: Real-time monitoring, driver simulation, ride testing, stress testing, logs export', 'info');
+            log('🎯 Quick Start: 1) Click "Start 5 Drivers" 2) Click "Single Ride" 3) Watch the magic!', 'success');
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            initialize();
+        });
+    </script>
+</body>
+</html>
