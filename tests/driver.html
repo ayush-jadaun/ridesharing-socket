@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Driver Simulator</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+  <h2>Driver Simulator</h2>
+  <input id="driverId" placeholder="Driver ID" />
+  <button onclick="goOnline()">Go Online</button>
+  <button onclick="goOffline()">Go Offline</button>
+  <button onclick="acceptRide()">Accept Ride</button>
+  <pre id="events"></pre>
+  <script>
+    const socket = io("http://localhost:3000");
+    let lastRideId = null;
+    function goOnline() {
+      const driverId = document.getElementById('driverId').value;
+      socket.emit('driver:online', { driverId, lng: 77.6, lat: 12.9 });
+    }
+    function goOffline() {
+      const driverId = document.getElementById('driverId').value;
+      socket.emit('driver:offline', { driverId });
+    }
+    function acceptRide() {
+      if (lastRideId) {
+        const driverId = document.getElementById('driverId').value;
+        socket.emit('driver:acceptRide', { driverId, rideId: lastRideId });
+      }
+    }
+    socket.on('ride:request', r => {
+      lastRideId = r.rideId;
+      log('New ride request: ' + JSON.stringify(r));
+    });
+    socket.on('ride:status', r => {
+      log('Ride status update: ' + JSON.stringify(r));
+    });
+    socket.on('driver:status', s => log('Driver status: ' + JSON.stringify(s)));
+    function log(msg) {
+      document.getElementById('events').textContent += msg + '\n';
+    }
+  </script>
+</body>
+</html>

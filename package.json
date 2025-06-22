@@ -17,5 +17,13 @@
   "bugs": {
     "url": "https://github.com/ayush-jadaun/ridesharing-socket/issues"
   },
-  "homepage": "https://github.com/ayush-jadaun/ridesharing-socket#readme"
+  "homepage": "https://github.com/ayush-jadaun/ridesharing-socket#readme",
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "nodemon": "^3.1.10",
+    "redis": "^5.5.6",
+    "socket.io": "^4.8.1",
+    "uuid": "^11.1.0"
+  }
 }
