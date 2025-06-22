@@ -18,6 +18,7 @@ module.exports = (io) => {
   const driverSockets = new Map(); // driverId -> socket
   const rideToRider = new Map(); // rideId -> { socket, riderId, pickup, drop }
   const rideDriverBroadcastMap = new Map(); // rideId -> Set(driverIds)
+  const driverActiveRide = new Map();
 
   io.on("connection", (socket) => {
     // DRIVER FLOW
@@ -54,8 +55,11 @@ module.exports = (io) => {
           console.log("No nearby drivers");
           return;
         }
+        const eligibleDrivers = nearbyDrivers.filter(
+          (driverId) => !driverActiveRide.has(driverId)
+        );
         // Send to new drivers only
-        const newDrivers = nearbyDrivers.filter((d) => !foundDrivers.has(d));
+        const newDrivers = eligibleDrivers.filter((d) => !foundDrivers.has(d));
         newDrivers.forEach((d) => foundDrivers.add(d));
         // Save ALL drivers seen in this radius to broadcast map (for notifications)
         const currentSet = rideDriverBroadcastMap.get(rideId) || new Set();
@@ -98,10 +102,13 @@ module.exports = (io) => {
     // DRIVER ACCEPTS RIDE
     socket.on("driver:acceptRide", async ({ driverId, rideId }) => {
       const accepted = await tryAcceptRide(rideId, driverId);
+      
       if (!accepted) {
         socket.emit("ride:acceptResult", { rideId, result: "failed" });
         return;
       }
+      driverActiveRide.set(driverId, rideId); 
+
 
       // Notify all drivers who got the request for this ride
       const notifiedDrivers = rideDriverBroadcastMap.get(rideId) || new Set();
@@ -121,6 +128,11 @@ module.exports = (io) => {
 
       // Clean up
       rideDriverBroadcastMap.delete(rideId);
+    });
+
+    socket.on("ride:finish", async ({ driverId, rideId }) => {
+      driverActiveRide.delete(driverId); // <-- Mark driver as available
+      // ...additional cleanup logic
     });
 
     // Clean up on disconnect for driver
