@@ -15,15 +15,15 @@ const {
 
 module.exports = (io) => {
   // Maps for in-memory session tracking
-  const driverSockets = new Map();
-  const rideToRider = new Map();
+  const driverSockets = new Map(); // driverId -> socket
+  const rideToRider = new Map(); // rideId -> { socket, riderId, pickup, drop }
+  const rideDriverBroadcastMap = new Map(); // rideId -> Set(driverIds)
 
   io.on("connection", (socket) => {
     // DRIVER FLOW
     socket.on("driver:online", async ({ driverId, lng, lat }) => {
       driverSockets.set(driverId, socket);
       await driverOnline(driverId, lng, lat);
-      // Optionally send current ride requests here
       socket.emit("driver:status", { status: "online" });
     });
 
@@ -42,20 +42,27 @@ module.exports = (io) => {
       const rideId = await createRideRequest(pickup, drop);
       rideToRider.set(rideId, { socket, riderId, pickup, drop });
 
-      // Start matching process
       let radius = SEARCH_INITIAL_RADIUS;
-      let found = false;
-      let timerStart = Date.now();
+      let foundDrivers = new Set();
+      let rideAccepted = false;
+      let searchTimer;
 
+      // Helper to broadcast ride request to new drivers only
       async function broadcastRide() {
         const nearbyDrivers = await getNearbyDrivers(pickup, radius);
-        if (!nearbyDrivers.length){
-          console.log("No nearby drivers")
+        if (!nearbyDrivers.length) {
+          console.log("No nearby drivers");
           return;
-        }  // No drivers to broadcast
+        }
+        // Send to new drivers only
+        const newDrivers = nearbyDrivers.filter((d) => !foundDrivers.has(d));
+        newDrivers.forEach((d) => foundDrivers.add(d));
+        // Save ALL drivers seen in this radius to broadcast map (for notifications)
+        const currentSet = rideDriverBroadcastMap.get(rideId) || new Set();
+        nearbyDrivers.forEach((d) => currentSet.add(d));
+        rideDriverBroadcastMap.set(rideId, currentSet);
 
-        // Broadcast to all nearby drivers
-        for (const driverId of nearbyDrivers) {
+        for (const driverId of newDrivers) {
           const drvSock = driverSockets.get(driverId);
           if (drvSock) {
             drvSock.emit("ride:request", { rideId, pickup, drop, riderId });
@@ -65,21 +72,27 @@ module.exports = (io) => {
 
       await broadcastRide();
 
-      // Timer: If no driver accepted in 1 minute, extend by 3km and repeat
-      const interval = setInterval(async () => {
-        const status = await getRideStatus(rideId);
-        if (status !== "pending") {
-          clearInterval(interval);
-          return;
-        }
-        if (Date.now() - timerStart >= SEARCH_TIMEOUT) {
-          radius += SEARCH_RADIUS_INCREMENT;
-          timerStart = Date.now();
-          await broadcastRide();
-        }
-      }, 5000); // Check every 5s
+      // Timer: If no driver accepts in SEARCH_TIMEOUT, increase radius and retry
+      async function startTimer() {
+        searchTimer = setTimeout(async () => {
+          const status = await getRideStatus(rideId);
+          if (status === "pending" && !rideAccepted) {
+            radius += SEARCH_RADIUS_INCREMENT;
+            await broadcastRide();
+            startTimer(); // recursively set timer
+          }
+        }, 20000); // 20 seconds (can use SEARCH_TIMEOUT if you want)
+      }
+      startTimer();
 
       socket.emit("rider:rideCreated", { rideId });
+
+      // Clean up if ride is accepted or socket disconnects
+      socket.on("disconnect", () => {
+        clearTimeout(searchTimer);
+        rideDriverBroadcastMap.delete(rideId);
+        rideToRider.delete(rideId);
+      });
     });
 
     // DRIVER ACCEPTS RIDE
@@ -90,9 +103,13 @@ module.exports = (io) => {
         return;
       }
 
-      // Notify all drivers (ride taken)
-      for (const drvSock of driverSockets.values()) {
-        drvSock.emit("ride:status", { rideId, status: "accepted", driverId });
+      // Notify all drivers who got the request for this ride
+      const notifiedDrivers = rideDriverBroadcastMap.get(rideId) || new Set();
+      for (const dId of notifiedDrivers) {
+        const drvSock = driverSockets.get(dId);
+        if (drvSock) {
+          drvSock.emit("ride:status", { rideId, status: "accepted", driverId });
+        }
       }
 
       // Notify rider of success
@@ -102,15 +119,17 @@ module.exports = (io) => {
         rideToRider.delete(rideId);
       }
 
-      // COMMENT: Save ride to DB here for history/auditing
+      // Clean up
+      rideDriverBroadcastMap.delete(rideId);
     });
 
-    // Clean up on disconnect
+    // Clean up on disconnect for driver
     socket.on("disconnect", () => {
+      // Remove disconnected driver from driverSockets
       driverSockets.forEach((sock, driverId) => {
         if (sock === socket) driverSockets.delete(driverId);
       });
-      // Could also clean up rideToRider if needed
+      // Optionally clean up rides for which this driver was the only candidate, etc.
     });
   });
 };
