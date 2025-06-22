@@ -11,6 +11,7 @@ const {
   SEARCH_INITIAL_RADIUS,
   SEARCH_RADIUS_INCREMENT,
   SEARCH_TIMEOUT,
+  MAX_RADIUS,
 } = require("../utils/constants");
 
 module.exports = (io) => {
@@ -19,6 +20,7 @@ module.exports = (io) => {
   const rideToRider = new Map(); // rideId -> { socket, riderId, pickup, drop }
   const rideDriverBroadcastMap = new Map(); // rideId -> Set(driverIds)
   const driverActiveRide = new Map();
+  const searchTimerByRide = new Map()
 
   io.on("connection", (socket) => {
     // DRIVER FLOW
@@ -77,19 +79,47 @@ module.exports = (io) => {
       await broadcastRide();
 
       // Timer: If no driver accepts in SEARCH_TIMEOUT, increase radius and retry
+
+
       async function startTimer() {
         searchTimer = setTimeout(async () => {
           const status = await getRideStatus(rideId);
           if (status === "pending" && !rideAccepted) {
+            if (radius >= MAX_RADIUS) {
+              // Timeout reached!
+              const rideReq = rideToRider.get(rideId);
+              if (rideReq) {
+                rideReq.socket.emit("rider:noDrivers", { rideId });
+                rideToRider.delete(rideId);
+              }
+              rideDriverBroadcastMap.delete(rideId);
+              return;
+            }
             radius += SEARCH_RADIUS_INCREMENT;
             await broadcastRide();
-            startTimer(); // recursively set timer
+            startTimer();
           }
-        }, 20000); // 20 seconds (can use SEARCH_TIMEOUT if you want)
+        }, 20000);
       }
       startTimer();
 
       socket.emit("rider:rideCreated", { rideId });
+    })
+    socket.on("rider:cancelRide", ({ rideId }) => {
+      clearTimeout(searchTimerByRide[rideId]); // If you track timers by rideId
+      const notifiedDrivers = rideDriverBroadcastMap.get(rideId) || new Set();
+      for (const dId of notifiedDrivers) {
+        const drvSock = driverSockets.get(dId);
+        if (drvSock) {
+          drvSock.emit("ride:status", { rideId, status: "cancelled" });
+        }
+      }
+      rideDriverBroadcastMap.delete(rideId);
+      rideToRider.delete(rideId);
+       socket.emit("rider:cancelConfirmed", { rideId });
+    });
+  
+      
 
       // Clean up if ride is accepted or socket disconnects
       socket.on("disconnect", () => {
@@ -97,7 +127,8 @@ module.exports = (io) => {
         rideDriverBroadcastMap.delete(rideId);
         rideToRider.delete(rideId);
       });
-    });
+      
+      
 
     // DRIVER ACCEPTS RIDE
     socket.on("driver:acceptRide", async ({ driverId, rideId }) => {
@@ -137,11 +168,33 @@ module.exports = (io) => {
 
     // Clean up on disconnect for driver
     socket.on("disconnect", () => {
-      // Remove disconnected driver from driverSockets
-      driverSockets.forEach((sock, driverId) => {
-        if (sock === socket) driverSockets.delete(driverId);
-      });
-      // Optionally clean up rides for which this driver was the only candidate, etc.
+      // Remove disconnected driver(s)
+      for (const [driverId, sock] of driverSockets.entries()) {
+        if (sock === socket) {
+          driverSockets.delete(driverId);
+          const rideId = driverActiveRide.get(driverId);
+          if (rideId) {
+            // Notify the rider driver became unavailable
+            const rideReq = rideToRider.get(rideId);
+            if (rideReq) {
+              rideReq.socket.emit("rider:driverUnavailable", {
+                rideId,
+                driverId,
+              });
+            }
+            driverActiveRide.delete(driverId);
+          }
+        }
+      }
+      for (const [rideId, rideReq] of rideToRider.entries()) {
+        if (rideReq.socket === socket) {
+          if (searchTimerByRide.has(rideId)) {
+            clearTimeout(searchTimerByRide.get(rideId));
+            searchTimerByRide.delete(rideId);
+          }
+          rideDriverBroadcastMap.delete(rideId);
+          rideToRider.delete(rideId);
+        }
+      }
     });
-  });
-};
+})};

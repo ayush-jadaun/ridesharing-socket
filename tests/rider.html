@@ -8,6 +8,7 @@
   <h2>Rider Simulator</h2>
   <input id="riderId" placeholder="Rider ID" />
   <button onclick="requestRide()">Request Ride</button>
+  <button onclick="cancelRide()">Cancel Ride</button>
   <pre id="events"></pre>
   <script>
     const socket = io("http://localhost:3000");
@@ -18,12 +19,28 @@
       const drop = { lng: 77.7, lat: 13.0 };
       socket.emit('rider:requestRide', { pickup, drop, riderId });
     }
+    function cancelRide() {
+      if (rideId) {
+        socket.emit('rider:cancelRide', { rideId });
+        log('Ride cancelled: ' + rideId);
+        rideId = null;
+      }
+    }
     socket.on('rider:rideCreated', r => {
       rideId = r.rideId;
       log('Ride created: ' + JSON.stringify(r));
     });
     socket.on('rider:rideAccepted', r => {
       log('Ride accepted: ' + JSON.stringify(r));
+    });
+    socket.on('rider:cancelConfirmed', r => {
+      log('Ride cancel confirmed: ' + JSON.stringify(r));
+    });
+    socket.on('rider:noDrivers', r => {
+      log('No drivers available: ' + JSON.stringify(r));
+    });
+    socket.on('rider:driverUnavailable', r => {
+      log('Driver became unavailable: ' + JSON.stringify(r));
     });
     function log(msg) {
       document.getElementById('events').textContent += msg + '\n';

@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -40,6 +39,10 @@
     });
     socket.on('ride:status', r => {
       log('Ride status update: ' + JSON.stringify(r));
+      if (r.status === "cancelled") {
+        log('Ride was cancelled: ' + r.rideId);
+        if (lastRideId === r.rideId) lastRideId = null;
+      }
     });
     socket.on('driver:status', s => log('Driver status: ' + JSON.stringify(s)));
     function log(msg) {

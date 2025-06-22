@@ -6,4 +6,5 @@ module.exports = {
   SEARCH_INITIAL_RADIUS: 5, // km
   SEARCH_RADIUS_INCREMENT: 3, // km
   SEARCH_TIMEOUT: 200, // 1 minute in ms
+  MAX_RADIUS: 15
 };
