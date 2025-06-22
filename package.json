@@ -2,13 +2,9 @@
   "name": "evai",
   "version": "1.0.0",
   "description": "",
-  "main": "src/app.js",
+  "main": "src/server.js",
   "scripts": {
-    "test": "jest",
-    "test:basic": "node test/manual-tests/test-basic-flow.js",
-    "test:drivers": "node test/simulators/driverSimulator.js",
-    "test:load": "node test/simulators/loadTester.js",
-    "dev": "nodemon src/app.js"
+    "dev": "nodemon src/server.js"
   },
   "keywords": [],
   "author": "",
@@ -24,8 +20,10 @@
     "joi": "^17.13.3",
     "ngeohash": "^0.6.3",
     "nodemon": "^3.1.10",
+    "redis": "^5.5.6",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
+    "uuid": "^11.1.0",
     "winston": "^3.17.0"
   }
 }

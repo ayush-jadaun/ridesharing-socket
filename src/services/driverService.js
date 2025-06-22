@@ -1,306 +1,303 @@
-const config = require("../config");
-const logger = require("../utils/logger");
-const GeohashUtil = require("../utils/geohash");
-const geoService = require("./geoService");
-const redisManager = require("../config/redis"); // Add this import
-
 class DriverService {
-  constructor() {
-    // Remove constructor expecting redis parameter
-    this.driverProfiles = new Map();
+  constructor(redisClient) {
+    this.redis = redisClient;
+    this.onlineDrivers = new Map(); // In-memory store for driver socket mappings
+    this.DRIVER_GEO_KEY = "drivers:geo";
+    this.DRIVER_STATUS_KEY = "drivers:status";
   }
 
-  // Add getter for Redis client
-  get redis() {
-    return redisManager.getClient();
-  }
-
-  async registerDriver(socket, driverData) {
+  async addDriver(driverId, socketId, lat, lng, vehicleType = "car") {
     try {
-      const {
-        driverId,
-        latitude,
-        longitude,
-        vehicleType,
-        rating,
+      // Add driver to Redis geo index
+      await this.redis.geoAdd(this.DRIVER_GEO_KEY, {
+        longitude: lng,
+        latitude: lat,
+        member: driverId,
+      });
+
+      // Store driver status and details
+      const driverData = {
         socketId,
-        driverName,
-        vehicleNumber,
-      } = driverData;
-
-      // Create driver profile
-      const driverProfile = {
-        driverId,
-        driverName: driverName || `Driver ${driverId}`,
         vehicleType,
-        vehicleNumber: vehicleNumber || "N/A",
-        rating: rating || 5.0,
         status: "available",
-        latitude,
-        longitude,
-        socketId: socket.id,
-        connectedAt: new Date().toISOString(),
-        lastLocationUpdate: new Date().toISOString(),
-        totalRides: 0,
-        isOnline: true,
+        lastUpdated: Date.now(),
       };
 
-      // Store in memory for quick access
-      this.driverProfiles.set(driverId, driverProfile);
-
-      // Store in Redis for persistence
-      await this.redis.hset(
-        "drivers:profiles",
-        driverId,
-        JSON.stringify(driverProfile)
+      await this.redis.hSet(
+        `${this.DRIVER_STATUS_KEY}:${driverId}`,
+        driverData
       );
 
-      // Add to active drivers set
-      await this.redis.sadd(config.REDIS_KEYS.ACTIVE_DRIVERS, driverId);
+      // Store in memory for socket management
+      this.onlineDrivers.set(driverId, {
+        socketId,
+        vehicleType,
+        lat,
+        lng,
+        status: "available",
+      });
 
-      // Create geohash-based room for efficient broadcasting
-      const geohash = GeohashUtil.encode(
-        latitude,
-        longitude,
-        config.GEOHASH_PRECISION
-      );
-      const roomName = `geo_${geohash}`;
-      socket.join(roomName);
-
-      // Update location in geo service
-      await geoService.updateDriverLocation(
-        driverId,
-        latitude,
-        longitude,
-        "available",
-        {
-          vehicleType,
-          rating,
-          driverName,
-          vehicleNumber,
-          socketId: socket.id,
-        }
-      );
-
-      logger.info(
-        `Driver ${driverId} registered successfully in room ${roomName}`
-      );
-
-      return {
-        success: true,
-        driverId,
-        roomName,
-        profile: driverProfile,
-      };
+      console.log(`Driver ${driverId} added at location: ${lat}, ${lng}`);
+      return true;
     } catch (error) {
-      logger.error(`Error registering driver ${driverData.driverId}:`, error);
-      throw error;
+      console.error("Error adding driver:", error);
+      return false;
     }
   }
 
-  async updateDriverRoom(socket, driverId, latitude, longitude) {
+  async updateDriverLocation(driverId, lat, lng) {
     try {
-      const driverProfile = this.driverProfiles.get(driverId);
-      if (!driverProfile) {
-        logger.warn(`Driver profile not found for ${driverId}`);
-        return;
+      if (!this.onlineDrivers.has(driverId)) {
+        return false;
       }
 
-      const oldGeohash = GeohashUtil.encode(
-        driverProfile.latitude,
-        driverProfile.longitude,
-        config.GEOHASH_PRECISION
-      );
-      const newGeohash = GeohashUtil.encode(
-        latitude,
-        longitude,
-        config.GEOHASH_PRECISION
-      );
+      // Update geo location
+      await this.redis.geoAdd(this.DRIVER_GEO_KEY, {
+        longitude: lng,
+        latitude: lat,
+        member: driverId,
+      });
 
-      if (oldGeohash !== newGeohash) {
-        // Driver moved to a different geohash region
-        const oldRoomName = `geo_${oldGeohash}`;
-        const newRoomName = `geo_${newGeohash}`;
+      // Update in-memory data
+      const driver = this.onlineDrivers.get(driverId);
+      driver.lat = lat;
+      driver.lng = lng;
+      this.onlineDrivers.set(driverId, driver);
 
-        socket.leave(oldRoomName);
-        socket.join(newRoomName);
-
-        logger.debug(
-          `Driver ${driverId} moved from ${oldRoomName} to ${newRoomName}`
-        );
-      }
-
-      // Update profile location
-      driverProfile.latitude = latitude;
-      driverProfile.longitude = longitude;
-      driverProfile.lastLocationUpdate = new Date().toISOString();
-
-      // Update in Redis
-      await this.redis.hset(
-        "drivers:profiles",
-        driverId,
-        JSON.stringify(driverProfile)
-      );
+      return true;
     } catch (error) {
-      logger.error(`Error updating driver room for ${driverId}:`, error);
+      console.error("Error updating driver location:", error);
+      return false;
     }
   }
 
-  async getDriverProfile(driverId) {
+  async findNearbyDrivers(lat, lng, radiusKm = 5) {
     try {
-      // Try memory first
-      let profile = this.driverProfiles.get(driverId);
-
-      if (!profile) {
-        // Try Redis
-        const profileData = await this.redis.hget("drivers:profiles", driverId);
-        if (profileData) {
-          profile = JSON.parse(profileData);
-          this.driverProfiles.set(driverId, profile);
-        }
-      }
-
-      return profile;
-    } catch (error) {
-      logger.error(`Error getting driver profile for ${driverId}:`, error);
-      return null;
-    }
-  }
-
-  async updateDriverStatus(driverId, status) {
-    try {
-      const driverProfile = await this.getDriverProfile(driverId);
-      if (!driverProfile) {
-        throw new Error(`Driver ${driverId} not found`);
-      }
-
-      driverProfile.status = status;
-      driverProfile.lastStatusUpdate = new Date().toISOString();
-
-      // Update in memory
-      this.driverProfiles.set(driverId, driverProfile);
-
-      // Update in Redis
-      await this.redis.hset(
-        "drivers:profiles",
-        driverId,
-        JSON.stringify(driverProfile)
+      console.log(
+        `Searching for drivers near ${lat}, ${lng} within ${radiusKm}km`
       );
 
-      // Update geo service
-      if (driverProfile.latitude && driverProfile.longitude) {
-        await geoService.updateDriverLocation(
-          driverId,
-          driverProfile.latitude,
-          driverProfile.longitude,
-          status,
+      const radiusMeters = radiusKm * 1000;
+
+      // Check if the geo key exists and has any members
+      const totalDrivers = await this.redis.zCard(this.DRIVER_GEO_KEY);
+      console.log(`Total drivers in geo index: ${totalDrivers}`);
+
+      if (totalDrivers === 0) {
+        console.log("No drivers found in geo index");
+        return [];
+      }
+
+      // Use GEORADIUS to find nearby drivers
+      let nearbyDrivers;
+
+      try {
+        // Method 1: Try with options object (some Redis clients)
+        nearbyDrivers = await this.redis.geoRadius(
+          this.DRIVER_GEO_KEY,
+          { longitude: lng, latitude: lat },
+          radiusMeters,
+          "m",
           {
-            vehicleType: driverProfile.vehicleType,
-            rating: driverProfile.rating,
-            driverName: driverProfile.driverName,
-            vehicleNumber: driverProfile.vehicleNumber,
-            socketId: driverProfile.socketId,
+            WITHDIST: true,
+            WITHCOORD: true,
+            COUNT: 10,
           }
         );
-      }
 
-      logger.info(`Driver ${driverId} status updated to ${status}`);
-      return true;
-    } catch (error) {
-      logger.error(`Error updating driver status for ${driverId}:`, error);
-      throw error;
-    }
-  }
-
-  async removeDriver(driverId, socketId) {
-    try {
-      // Remove from memory
-      this.driverProfiles.delete(driverId);
-
-      // Remove from Redis
-      await this.redis.hdel("drivers:profiles", driverId);
-      await this.redis.srem(config.REDIS_KEYS.ACTIVE_DRIVERS, driverId);
-
-      // Remove from geo service
-      await geoService.removeDriver(driverId);
-
-      logger.info(`Driver ${driverId} removed from system`);
-      return true;
-    } catch (error) {
-      logger.error(`Error removing driver ${driverId}:`, error);
-      throw error;
-    }
-  }
-
-  async getActiveDriversCount() {
-    try {
-      const count = await this.redis.scard(config.REDIS_KEYS.ACTIVE_DRIVERS);
-      return count || 0;
-    } catch (error) {
-      logger.error("Error getting active drivers count:", error);
-      return 0;
-    }
-  }
-
-  async getDriverIdFromSocket(socketId) {
-    try {
-      // Search through profiles to find matching socket ID
-      for (const [driverId, profile] of this.driverProfiles.entries()) {
-        if (profile.socketId === socketId) {
-          return driverId;
+        // If we get simple strings, try the raw command
+        if (
+          nearbyDrivers &&
+          nearbyDrivers.length > 0 &&
+          typeof nearbyDrivers[0] === "string"
+        ) {
+          console.log("Got simple strings, trying raw command...");
+          throw new Error("Need to use raw command");
         }
+      } catch (methodError) {
+        console.log(
+          "Standard geoRadius failed, trying raw command:",
+          methodError.message
+        );
+
+        // Method 2: Use raw Redis command
+        nearbyDrivers = await this.redis.sendCommand([
+          "GEORADIUS",
+          this.DRIVER_GEO_KEY,
+          lng.toString(),
+          lat.toString(),
+          radiusMeters.toString(),
+          "m",
+          "WITHDIST",
+          "WITHCOORD",
+          "COUNT",
+          "10",
+        ]);
       }
 
-      // If not in memory, search Redis
-      const allProfiles = await this.redis.hgetall("drivers:profiles");
-      for (const [driverId, profileData] of Object.entries(allProfiles)) {
-        try {
-          const profile = JSON.parse(profileData);
-          if (profile.socketId === socketId) {
-            return driverId;
+      console.log("Raw nearby drivers result:", nearbyDrivers);
+
+      // Handle case where nearbyDrivers is undefined or null
+      if (!nearbyDrivers || !Array.isArray(nearbyDrivers)) {
+        console.log("No nearby drivers found or invalid response");
+        return [];
+      }
+
+      const availableDrivers = [];
+
+      for (const driver of nearbyDrivers) {
+        // Handle different response formats
+        let driverId,
+          distance = 0,
+          coordinates = [0, 0];
+
+        if (Array.isArray(driver)) {
+          // Response format from raw command: [member, distance, [lng, lat]]
+          driverId = driver[0];
+          distance = driver.length > 1 ? parseFloat(driver[1]) : 0;
+          coordinates = driver.length > 2 ? driver[2] : [0, 0];
+        } else if (driver.member) {
+          // Response format: {member, distance, coordinates}
+          driverId = driver.member;
+          distance = parseFloat(driver.distance || 0);
+          coordinates = driver.coordinates || [0, 0];
+        } else if (typeof driver === "string") {
+          // Just driver ID - need to get position and calculate distance manually
+          driverId = driver;
+
+          // Get driver position from Redis
+          try {
+            const position = await this.redis.geoPos(
+              this.DRIVER_GEO_KEY,
+              driverId
+            );
+            if (position && position[0] && position[0].length === 2) {
+              coordinates = [
+                parseFloat(position[0][0]),
+                parseFloat(position[0][1]),
+              ];
+              // Calculate distance manually using Haversine formula
+              distance =
+                this.calculateDistance(
+                  lat,
+                  lng,
+                  coordinates[1],
+                  coordinates[0]
+                ) * 1000; // Convert to meters
+            }
+          } catch (posError) {
+            console.log(
+              `Failed to get position for driver ${driverId}:`,
+              posError.message
+            );
+            continue;
           }
-        } catch (error) {
+        } else {
+          console.log("Unknown driver response format:", driver);
           continue;
         }
-      }
 
-      return null;
-    } catch (error) {
-      logger.error("Error finding driver by socket ID:", error);
-      return null;
-    }
-  }
+        const [driverLng, driverLat] = coordinates;
 
-  async cleanupOfflineDrivers() {
-    try {
-      const allProfiles = await this.redis.hgetall("drivers:profiles");
-      const now = Date.now();
-      let cleanedCount = 0;
-
-      for (const [driverId, profileData] of Object.entries(allProfiles)) {
-        try {
-          const profile = JSON.parse(profileData);
-          const lastUpdate = new Date(profile.lastLocationUpdate).getTime();
-
-          // Remove drivers offline for more than 5 minutes
-          if (now - lastUpdate > config.DRIVER_OFFLINE_TIMEOUT * 1000) {
-            await this.removeDriver(driverId);
-            cleanedCount++;
-          }
-        } catch (error) {
-          // Invalid profile data, remove it
-          await this.removeDriver(driverId);
-          cleanedCount++;
+        // Check if driver is available
+        const driverInfo = this.onlineDrivers.get(driverId);
+        if (driverInfo && driverInfo.status === "available") {
+          availableDrivers.push({
+            driverId,
+            socketId: driverInfo.socketId,
+            vehicleType: driverInfo.vehicleType,
+            lat: parseFloat(driverLat),
+            lng: parseFloat(driverLng),
+            distance: Math.round(distance),
+          });
         }
       }
 
-      if (cleanedCount > 0) {
-        logger.info(`Cleaned up ${cleanedCount} offline drivers`);
-      }
+      console.log(`Found ${availableDrivers.length} available drivers`);
+      return availableDrivers.sort((a, b) => a.distance - b.distance);
     } catch (error) {
-      logger.error("Error cleaning up offline drivers:", error);
+      console.error("Error finding nearby drivers:", error);
+      return [];
     }
+  }
+
+  // Helper method to calculate distance (Haversine formula)
+  calculateDistance(lat1, lng1, lat2, lng2) {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = this.toRadians(lat2 - lat1);
+    const dLng = this.toRadians(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRadians(lat1)) *
+        Math.cos(this.toRadians(lat2)) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  toRadians(degrees) {
+    return degrees * (Math.PI / 180);
+  }
+
+  async setDriverStatus(driverId, status) {
+    try {
+      if (this.onlineDrivers.has(driverId)) {
+        const driver = this.onlineDrivers.get(driverId);
+        driver.status = status;
+        this.onlineDrivers.set(driverId, driver);
+
+        // Update in Redis
+        await this.redis.hSet(
+          `${this.DRIVER_STATUS_KEY}:${driverId}`,
+          "status",
+          status
+        );
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error("Error setting driver status:", error);
+      return false;
+    }
+  }
+
+  async removeDriver(driverId) {
+    try {
+      // Remove from geo index
+      await this.redis.geoRem(this.DRIVER_GEO_KEY, driverId);
+
+      // Remove driver status
+      await this.redis.del(`${this.DRIVER_STATUS_KEY}:${driverId}`);
+
+      // Remove from memory
+      this.onlineDrivers.delete(driverId);
+
+      console.log(`Driver ${driverId} removed`);
+      return true;
+    } catch (error) {
+      console.error("Error removing driver:", error);
+      return false;
+    }
+  }
+
+  getDriverBySocketId(socketId) {
+    for (const [driverId, driver] of this.onlineDrivers.entries()) {
+      if (driver.socketId === socketId) {
+        return { driverId, ...driver };
+      }
+    }
+    return null;
+  }
+
+  getAllOnlineDrivers() {
+    return Array.from(this.onlineDrivers.entries()).map(
+      ([driverId, driver]) => ({
+        driverId,
+        ...driver,
+      })
+    );
   }
 }
 
-module.exports = new DriverService();
+module.exports = DriverService;

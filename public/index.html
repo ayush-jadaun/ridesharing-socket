@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ride Matching System - Test Interface</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .stats-bar {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .stat-card {
+            background: rgba(255,255,255,0.15);
+            backdrop-filter: blur(10px);
+            padding: 15px 25px;
+            border-radius: 15px;
+            text-align: center;
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            display: block;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .panel h2 {
+            color: #4a5568;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        input, select, button {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: transform 0.2s ease;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-online { background-color: #48bb78; }
+        .status-offline { background-color: #f56565; }
+        .status-busy { background-color: #ed8936; }
+
+        .log-container {
+            background: #1a202c;
+            color: #e2e8f0;
+            border-radius: 15px;
+            padding: 20px;
+            margin-top: 20px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px;
+            border-left: 3px solid transparent;
+        }
+
+        .log-info { border-left-color: #4299e1; }
+        .log-success { border-left-color: #48bb78; }
+        .log-warning { border-left-color: #ed8936; }
+        .log-error { border-left-color: #f56565; }
+
+        .mock-drivers {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .driver-card {
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+            border-radius: 15px;
+            padding: 15px;
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+
+        .driver-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.1);
+        }
+
+        .driver-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .driver-name {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .coordinates {
+            font-size: 12px;
+            color: #718096;
+            font-family: monospace;
+        }
+
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .quick-btn {
+            padding: 8px 12px;
+            font-size: 12px;
+            border-radius: 8px;
+        }
+
+        .emoji {
+            font-size: 1.2em;
+            margin-right: 5px;
+        }
+
+        .ride-info {
+            background: linear-gradient(135deg, #e6fffa 0%, #b2f5ea 100%);
+            border-radius: 12px;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 4px solid #38b2ac;
+        }
+
+        .ride-id {
+            font-family: monospace;
+            font-size: 12px;
+            color: #4a5568;
+        }
+
+        @media (max-width: 768px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats-bar {
+                gap: 15px;
+            }
+            
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 12px;
+            padding: 15px 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            border-left: 4px solid #48bb78;
+            z-index: 1000;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .animate-pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1><span class="emoji">🚗</span>Ride Matching System</h1>
+            <p>Real-time ride dispatching with WebSocket + RedisGeo</p>
+        </header>
+
+        <div class="stats-bar">
+            <div class="stat-card">
+                <span class="stat-number" id="onlineDrivers">0</span>
+                <span>Online Drivers</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="activeRides">0</span>
+                <span>Active Rides</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="pendingRequests">0</span>
+                <span>Pending Requests</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-number" id="connectionStatus">🔴</span>
+                <span>Connection</span>
+            </div>
+        </div>
+
+        <div class="main-grid">
+            <!-- Driver Panel -->
+            <div class="panel">
+                <h2><span class="emoji">👨‍💼</span>Driver Management</h2>
+                
+                <div class="form-group">
+                    <button id="createMockDrivers" class="quick-btn">
+                        <span class="emoji">🤖</span>Create 5 Mock Drivers
+                    </button>
+                </div>
+
+                <div class="form-group">
+                    <label>Manual Driver Registration</label>
+                    <div class="form-row">
+                        <input type="text" id="driverId" placeholder="Driver ID (e.g., DRIVER001)">
+                        <select id="vehicleType">
+                            <option value="car">🚗 Car</option>
+                            <option value="bike">🏍️ Bike</option>
+                            <option value="auto">🛺 Auto</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <input type="number" id="driverLat" placeholder="Latitude" step="0.0001">
+                        <input type="number" id="driverLng" placeholder="Longitude" step="0.0001">
+                    </div>
+                    <button id="registerDriver">Register Driver</button>
+                </div>
+
+                <div class="mock-drivers" id="mockDriversList"></div>
+            </div>
+
+            <!-- Rider Panel -->
+            <div class="panel">
+                <h2><span class="emoji">🙋‍♂️</span>Rider Interface</h2>
+                
+                <div class="form-group">
+                    <label>Rider ID</label>
+                    <input type="text" id="riderId" placeholder="Enter rider ID" value="RIDER001">
+                </div>
+
+                <div class="form-group">
+                    <label>Pickup Location</label>
+                    <div class="form-row">
+                        <input type="number" id="pickupLat" placeholder="Pickup Latitude" step="0.0001" value="28.6139">
+                        <input type="number" id="pickupLng" placeholder="Pickup Longitude" step="0.0001" value="77.2090">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Drop Location</label>
+                    <div class="form-row">
+                        <input type="number" id="dropLat" placeholder="Drop Latitude" step="0.0001" value="28.6304">
+                        <input type="number" id="dropLng" placeholder="Drop Longitude" step="0.0001" value="77.2177">
+                    </div>
+                </div>
+
+                <div class="quick-actions">
+                    <button id="joinAsRider" class="quick-btn">Join as Rider</button>
+                    <button id="requestRide" class="quick-btn">Request Ride</button>
+                    <button id="cancelRide" class="quick-btn" disabled>Cancel Ride</button>
+                    <button id="findNearbyDrivers" class="quick-btn">Find Nearby</button>
+                </div>
+
+                <div id="rideStatus"></div>
+            </div>
+        </div>
+
+        <!-- System Monitor -->
+        <div class="panel">
+            <h2><span class="emoji">📊</span>System Monitor</h2>
+            <div class="quick-actions">
+                <button id="refreshStats" class="quick-btn">Refresh Stats</button>
+                <button id="clearLogs" class="quick-btn">Clear Logs</button>
+                <button id="simulateRide" class="quick-btn">Simulate Full Ride</button>
+                <button id="testNearbySearch" class="quick-btn">Test Geo Search</button>
+            </div>
+            <div class="log-container" id="systemLogs"></div>
+        </div>
+    </div>
+
+    <script>
+        class RideMatchingTestApp {
+            constructor() {
+                this.socket = io();
+                this.mockDrivers = [];
+                this.currentRideId = null;
+                this.riderJoined = false;
+                this.stats = {
+                    onlineDrivers: 0,
+                    activeRides: 0,
+                    pendingRequests: 0
+                };
+
+                this.init();
+            }
+
+            init() {
+                this.setupSocketListeners();
+                this.setupEventListeners();
+                this.generateMockData();
+                this.log('System initialized', 'info');
+            }
+
+            setupSocketListeners() {
+                this.socket.on('connect', () => {
+                    this.log('Connected to server', 'success');
+                    this.updateConnectionStatus(true);
+                });
+
+                this.socket.on('disconnect', () => {
+                    this.log('Disconnected from server', 'error');
+                    this.updateConnectionStatus(false);
+                });
+
+                // Driver events
+                this.socket.on('driver:status', (data) => {
+                    this.log(`Driver status: ${data.message}`, 'success');
+                });
+
+                this.socket.on('driver:joined', (data) => {
+                    this.log(`New driver online: ${data.driverId} at (${data.lat}, ${data.lng})`, 'info');
+                    this.refreshStats();
+                });
+
+                this.socket.on('driver:left', (data) => {
+                    this.log(`Driver offline: ${data.driverId}`, 'warning');
+                    this.refreshStats();
+                });
+
+                // Ride events for riders
+                this.socket.on('rider:joined', (data) => {
+                    this.log('Successfully joined as rider', 'success');
+                    this.riderJoined = true;
+                    this.updateRiderButtons();
+                });
+
+                this.socket.on('ride:searching', (data) => {
+                    this.log(`Searching for drivers... Found ${data.driversFound} nearby drivers`, 'info');
+                    this.showRideInfo(data);
+                });
+
+                this.socket.on('ride:driver_assigned', (data) => {
+                    this.log(`Driver ${data.driverId} assigned to your ride`, 'success');
+                    this.showRideInfo(data);
+                    this.currentRideId = data.rideId;
+                    this.updateRiderButtons();
+                });
+
+                this.socket.on('ride:completed', (data) => {
+                    this.log('Ride completed successfully', 'success');
+                    this.clearRideInfo();
+                    this.currentRideId = null;
+                    this.updateRiderButtons();
+                });
+
+                this.socket.on('ride:cancelled', (data) => {
+                    this.log('Ride cancelled', 'warning');
+                    this.clearRideInfo();
+                    this.currentRideId = null;
+                    this.updateRiderButtons();
+                });
+
+                this.socket.on('ride:no_drivers', (data) => {
+                    this.log('No drivers available nearby', 'warning');
+                });
+
+                // Ride events for drivers
+                this.socket.on('ride:request', (data) => {
+                    this.log(`New ride request: ${data.rideId} (${data.distance}m away)`, 'info');
+                    this.showDriverRideRequest(data);
+                });
+
+                this.socket.on('ride:accepted', (data) => {
+                    this.log(`Ride accepted: ${data.rideId}`, 'success');
+                });
+
+                this.socket.on('ride:unavailable', (data) => {
+                    this.log(`Ride ${data.rideId} no longer available`, 'warning');
+                });
+
+                this.socket.on('error', (data) => {
+                    this.log(`Error: ${data.message}`, 'error');
+                });
+
+                // Debug events
+                this.socket.on('debug:drivers', (drivers) => {
+                    this.log(`Debug - Online drivers: ${drivers.length}`, 'info');
+                    console.log('Online drivers:', drivers);
+                });
+
+                this.socket.on('debug:rides', (data) => {
+                    this.log(`Debug - Pending: ${data.pendingRides.length}, Active: ${data.activeRides.length}`, 'info');
+                    console.log('Rides:', data);
+                });
+            }
+
+            setupEventListeners() {
+                // Mock drivers
+                document.getElementById('createMockDrivers').addEventListener('click', () => {
+                    this.createMockDrivers();
+                });
+
+                // Manual driver registration
+                document.getElementById('registerDriver').addEventListener('click', () => {
+                    this.registerDriver();
+                });
+
+                // Rider actions
+                document.getElementById('joinAsRider').addEventListener('click', () => {
+                    this.joinAsRider();
+                });
+
+                document.getElementById('requestRide').addEventListener('click', () => {
+                    this.requestRide();
+                });
+
+                document.getElementById('cancelRide').addEventListener('click', () => {
+                    this.cancelRide();
+                });
+
+                document.getElementById('findNearbyDrivers').addEventListener('click', () => {
+                    this.findNearbyDrivers();
+                });
+
+                // System actions
+                document.getElementById('refreshStats').addEventListener('click', () => {
+                    this.refreshStats();
+                });
+
+                document.getElementById('clearLogs').addEventListener('click', () => {
+                    this.clearLogs();
+                });
+
+                document.getElementById('simulateRide').addEventListener('click', () => {
+                    this.simulateFullRide();
+                });
+
+                document.getElementById('testNearbySearch').addEventListener('click', () => {
+                    this.testGeoSearch();
+                });
+            }
+
+            generateMockData() {
+                // Generate coordinates within 5km of Delhi center (28.6139, 77.2090)
+                const center = { lat: 28.6139, lng: 77.2090 };
+                const radius = 0.045; // Approximately 5km in degrees
+
+                // Pre-generate some locations within 5km radius
+                this.mockLocations = [];
+                for (let i = 0; i < 20; i++) {
+                    const angle = Math.random() * 2 * Math.PI;
+                    const distance = Math.random() * radius;
+                    const lat = center.lat + (distance * Math.cos(angle));
+                    const lng = center.lng + (distance * Math.sin(angle));
+                    this.mockLocations.push({ lat: parseFloat(lat.toFixed(4)), lng: parseFloat(lng.toFixed(4)) });
+                }
+
+                // Set default pickup/drop locations
+                document.getElementById('pickupLat').value = center.lat;
+                document.getElementById('pickupLng').value = center.lng;
+                document.getElementById('dropLat').value = this.mockLocations[1].lat;
+                document.getElementById('dropLng').value = this.mockLocations[1].lng;
+            }
+
+            createMockDrivers() {
+                this.log('Creating 5 mock drivers...', 'info');
+                
+                const vehicleTypes = ['car', 'bike', 'auto'];
+                const driverNames = ['Alex', 'Sarah', 'Mike', 'Emma', 'John'];
+                
+                this.mockDrivers = [];
+                
+                for (let i = 0; i < 5; i++) {
+                    const location = this.mockLocations[i];
+                    const driverId = `DRIVER${String(i + 1).padStart(3, '0')}`;
+                    const vehicleType = vehicleTypes[i % vehicleTypes.length];
+                    const driverName = driverNames[i];
+                    
+                    const mockDriver = {
+                        id: driverId,
+                        name: driverName,
+                        vehicleType,
+                        location,
+                        status: 'offline',
+                        socket: null
+                    };
+                    
+                    this.mockDrivers.push(mockDriver);
+                    
+                    // Register driver automatically
+                    setTimeout(() => {
+                        this.registerMockDriver(mockDriver);
+                    }, i * 1000);
+                }
+                
+                this.updateMockDriversDisplay();
+            }
+
+            registerMockDriver(driver) {
+                // Create a separate socket connection for each mock driver
+                const driverSocket = io();
+                driver.socket = driverSocket;
+                
+                driverSocket.on('connect', () => {
+                    driverSocket.emit('driver:online', {
+                        driverId: driver.id,
+                        lat: driver.location.lat,
+                        lng: driver.location.lng,
+                        vehicleType: driver.vehicleType
+                    });
+                    
+                    driver.status = 'online';
+                    this.updateMockDriversDisplay();
+                    this.log(`Mock driver ${driver.name} (${driver.id}) went online`, 'success');
+                });
+
+                driverSocket.on('ride:request', (data) => {
+                    this.log(`${driver.name} received ride request: ${data.rideId}`, 'info');
+                    
+                    // Auto-accept first ride request for demo purposes
+                    if (driver.id === 'DRIVER001') {
+                        setTimeout(() => {
+                            driverSocket.emit('driver:accept', { rideId: data.rideId });
+                            driver.status = 'busy';
+                            this.updateMockDriversDisplay();
+                        }, 2000);
+                    }
+                });
+
+                driverSocket.on('ride:accepted', (data) => {
+                    this.log(`${driver.name} accepted ride ${data.rideId}`, 'success');
+                    driver.status = 'busy';
+                    this.updateMockDriversDisplay();
+                    
+                    // Auto-complete ride after 10 seconds for demo
+                    setTimeout(() => {
+                        driverSocket.emit('driver:complete', { rideId: data.rideId });
+                        driver.status = 'online';
+                        this.updateMockDriversDisplay();
+                    }, 10000);
+                });
+
+                driverSocket.on('ride:unavailable', () => {
+                    this.log(`Ride no longer available for ${driver.name}`, 'warning');
+                });
+            }
+
+            registerDriver() {
+                const driverId = document.getElementById('driverId').value;
+                const vehicleType = document.getElementById('vehicleType').value;
+                const lat = parseFloat(document.getElementById('driverLat').value);
+                const lng = parseFloat(document.getElementById('driverLng').value);
+
+                if (!driverId || !lat || !lng) {
+                    this.log('Please fill all driver details', 'error');
+                    return;
+                }
+
+                this.socket.emit('driver:online', {
+                    driverId,
+                    lat,
+                    lng,
+                    vehicleType
+                });
+
+                this.log(`Registering driver ${driverId}...`, 'info');
+                
+                // Clear form
+                document.getElementById('driverId').value = '';
+                document.getElementById('driverLat').value = '';
+                document.getElementById('driverLng').value = '';
+            }
+
+            joinAsRider() {
+                const riderId = document.getElementById('riderId').value;
+                if (!riderId) {
+                    this.log('Please enter rider ID', 'error');
+                    return;
+                }
+
+                this.socket.emit('rider:join', { riderId });
+                this.log(`Joining as rider: ${riderId}`, 'info');
+            }
+
+            requestRide() {
+                if (!this.riderJoined) {
+                    this.log('Please join as rider first', 'error');
+                    return;
+                }
+
+                const riderId = document.getElementById('riderId').value;
+                const pickupLat = parseFloat(document.getElementById('pickupLat').value);
+                const pickupLng = parseFloat(document.getElementById('pickupLng').value);
+                const dropLat = parseFloat(document.getElementById('dropLat').value);
+                const dropLng = parseFloat(document.getElementById('dropLng').value);
+
+                if (!pickupLat || !pickupLng || !dropLat || !dropLng) {
+                    this.log('Please fill all location details', 'error');
+                    return;
+                }
+
+                this.socket.emit('rider:request', {
+                    riderId,
+                    pickupLat,
+                    pickupLng,
+                    dropLat,
+                    dropLng
+                });
+
+                this.log('Requesting ride...', 'info');
+            }
+
+            cancelRide() {
+                if (!this.currentRideId) {
+                    this.log('No active ride to cancel', 'error');
+                    return;
+                }
+
+                this.socket.emit('rider:cancel', { rideId: this.currentRideId });
+                this.log('Cancelling ride...', 'info');
+            }
+
+            findNearbyDrivers() {
+                const lat = parseFloat(document.getElementById('pickupLat').value);
+                const lng = parseFloat(document.getElementById('pickupLng').value);
+
+                if (!lat || !lng) {
+                    this.log('Please enter pickup location', 'error');
+                    return;
+                }
+
+                fetch('/api/drivers/nearby', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ lat, lng, radius: 5 })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    this.log(`Found ${data.count} nearby drivers`, 'success');
+                    console.log('Nearby drivers:', data.drivers);
+                })
+                .catch(error => {
+                    this.log('Error finding nearby drivers', 'error');
+                    console.error(error);
+                });
+            }
+
+            simulateFullRide() {
+                this.log('Starting full ride simulation...', 'info');
+                
+                // Step 1: Create mock drivers
+                this.createMockDrivers();
+                
+                setTimeout(() => {
+                    // Step 2: Join as rider
+                    if (!this.riderJoined) {
+                        this.joinAsRider();
+                    }
+                    
+                    setTimeout(() => {
+                        // Step 3: Request ride
+                        this.requestRide();
+                    }, 2000);
+                }, 3000);
+            }
+
+            testGeoSearch() {
+                this.log('Testing geo search functionality...', 'info');
+                
+                const center = { lat: 28.6139, lng: 77.2090 };
+                
+                fetch('/api/drivers/nearby', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        lat: center.lat, 
+                        lng: center.lng, 
+                        radius: 10 
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    this.log(`Geo search test: Found ${data.count} drivers within 10km`, 'success');
+                    console.log('Search results:', data);
+                })
+                .catch(error => {
+                    this.log('Geo search test failed', 'error');
+                    console.error(error);
+                });
+            }
+
+            refreshStats() {
+                this.socket.emit('debug:get_drivers');
+                this.socket.emit('debug:get_rides');
+                
+                // Update stats from API
+                fetch('/api/drivers')
+                    .then(response => response.json())
+                    .then(data => {
+                        this.stats.onlineDrivers = data.count;
+                        this.updateStatsDisplay();
+                    });
+
+                fetch('/api/rides')
+                    .then(response => response.json())
+                    .then(data => {
+                        this.stats.activeRides = data.counts.active;
+                        this.stats.pendingRequests = data.counts.pending;
+                        this.updateStatsDisplay();
+                    });
+
+                this.log('Stats refreshed', 'info');
+            }
+
+            updateStatsDisplay() {
+                document.getElementById('onlineDrivers').textContent = this.stats.onlineDrivers;
+                document.getElementById('activeRides').textContent = this.stats.activeRides;
+                document.getElementById('pendingRequests').textContent = this.stats.pendingRequests;
+            }
+
+            updateConnectionStatus(connected) {
+                const statusElement = document.getElementById('connectionStatus');
+                statusElement.textContent = connected ? '🟢' : '🔴';
+            }
+
+            updateRiderButtons() {
+                const joinBtn = document.getElementById('joinAsRider');
+                const requestBtn = document.getElementById('requestRide');
+                const cancelBtn = document.getElementById('cancelRide');
+
+                joinBtn.disabled = this.riderJoined;
+                requestBtn.disabled = !this.riderJoined || this.currentRideId;
+                cancelBtn.disabled = !this.currentRideId;
+            }
+
+            updateMockDriversDisplay() {
+                const container = document.getElementById('mockDriversList');
+                container.innerHTML = '';
+
+                this.mockDrivers.forEach(driver => {
+                    const driverCard = document.createElement('div');
+                    driverCard.className = 'driver-card';
+                    
+                    const statusClass = driver.status === 'online' ? 'status-online' : 
+                                       driver.status === 'busy' ? 'status-busy' : 'status-offline';
+                    
+                    driverCard.innerHTML = `
+                        <div class="driver-header">
+                            <span class="driver-name">
+                                <span class="status-indicator ${statusClass}"></span>
+                                ${driver.name} (${driver.id})
+                            </span>
+                            <span class="vehicle-type">${this.getVehicleEmoji(driver.vehicleType)}</span>
+                        </div>
+                        <div class="coordinates">
+                            📍 ${driver.location.lat}, ${driver.location.lng}
+                        </div>
+                        <div class="driver-status">Status: ${driver.status}</div>
+                        <div class="driver-actions">
+                            <button onclick="app.toggleDriverStatus('${driver.id}')" class="quick-btn">
+                                ${driver.status === 'online' ? 'Go Offline' : 'Go Online'}
+                            </button>
+                        </div>
+                    `;
+                    
+                    container.appendChild(driverCard);
+                });
+            }
+
+            getVehicleEmoji(vehicleType) {
+                const emojis = {
+                    car: '🚗',
+                    bike: '🏍️',
+                    auto: '🛺'
+                };
+                return emojis[vehicleType] || '🚗';
+            }
+
+            toggleDriverStatus(driverId) {
+                const driver = this.mockDrivers.find(d => d.id === driverId);
+                if (!driver) return;
+
+                if (driver.status === 'online') {
+                    // Go offline
+                    if (driver.socket) {
+                        driver.socket.emit('driver:offline');
+                        driver.status = 'offline';
+                    }
+                } else if (driver.status === 'offline') {
+                    // Go online
+                    if (driver.socket) {
+                        driver.socket.emit('driver:online', {
+                            driverId: driver.id,
+                            lat: driver.location.lat,
+                            lng: driver.location.lng,
+                            vehicleType: driver.vehicleType
+                        });
+                        driver.status = 'online';
+                    }
+                }
+
+                this.updateMockDriversDisplay();
+            }
+
+            showRideInfo(data) {
+                const rideStatus = document.getElementById('rideStatus');
+                
+                let content = `
+                    <div class="ride-info">
+                        <h3>🚗 Ride Information</h3>
+                        <div class="ride-id">Ride ID: ${data.rideId}</div>
+                `;
+
+                if (data.driversFound !== undefined) {
+                    content += `<p>📍 Found ${data.driversFound} nearby drivers</p>`;
+                }
+
+                if (data.driverId) {
+                    content += `
+                        <p>👨‍💼 Driver: ${data.driverId}</p>
+                        <p>🚗 Vehicle: ${data.vehicleType || 'Unknown'}</p>
+                        <p>📏 Distance: ${data.distance}m away</p>
+                    `;
+                }
+
+                if (data.estimatedFare) {
+                    content += `<p>💰 Estimated Fare: ₹${data.estimatedFare}</p>`;
+                }
+
+                content += `</div>`;
+                rideStatus.innerHTML = content;
+            }
+
+            clearRideInfo() {
+                document.getElementById('rideStatus').innerHTML = '';
+            }
+
+            showDriverRideRequest(data) {
+                // Find which mock driver should respond
+                const driver = this.mockDrivers.find(d => d.status === 'online');
+                if (driver) {
+                    this.log(`${driver.name} considering ride request...`, 'info');
+                }
+            }
+
+            clearLogs() {
+                document.getElementById('systemLogs').innerHTML = '';
+            }
+
+            log(message, type = 'info') {
+                const logContainer = document.getElementById('systemLogs');
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry log-${type}`;
+                
+                const timestamp = new Date().toLocaleTimeString();
+                logEntry.innerHTML = `<span style="color: #718096;">[${timestamp}]</span> ${message}`;
+                
+                logContainer.appendChild(logEntry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+
+                // Keep only last 100 log entries
+                const entries = logContainer.children;
+                if (entries.length > 100) {
+                    logContainer.removeChild(entries[0]);
+                }
+            }
+
+            showNotification(message, type = 'success') {
+                const notification = document.createElement('div');
+                notification.className = `notification ${type}`;
+                notification.innerHTML = `
+                    <div style="font-weight: 600;">${type === 'success' ? '✅' : '⚠️'} ${type.toUpperCase()}</div>
+                    <div>${message}</div>
+                `;
+                
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.classList.add('show');
+                }, 100);
+                
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                    setTimeout(() => {
+                        document.body.removeChild(notification);
+                    }, 300);
+                }, 3000);
+            }
+        }
+
+        // Global app instance
+        let app;
+
+        // Initialize app when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            app = new RideMatchingTestApp();
+            
+            // Auto-refresh stats every 10 seconds
+            setInterval(() => {
+                app.refreshStats();
+            }, 10000);
+        });
+
+        // Add some global helper functions for debugging
+        window.debugApp = {
+            getStats: () => app.stats,
+            getMockDrivers: () => app.mockDrivers,
+            getCurrentRide: () => app.currentRideId,
+            sendCustomEvent: (event, data) => app.socket.emit(event, data)
+        };
+    </script>
+</body>
+</html>

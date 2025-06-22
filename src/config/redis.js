@@ -1,47 +1,36 @@
-const Redis = require("ioredis");
-const config = require("./index");
-const logger = require("../utils/logger");
+const redis = require("redis");
 
-class RedisManager {
+class RedisConfig {
   constructor() {
     this.client = null;
-    this.pubClient = null;
-    this.subClient = null;
   }
 
   async connect() {
     try {
-      // Simple Redis connection - replace ******** with your actual password
       const redisUrl =
         process.env.UPSTASH_REDIS_URL ||
         "rediss://default:********@mutual-cheetah-50921.upstash.io:6379";
 
-      logger.info("Connecting to Upstash Redis...");
+      this.client = redis.createClient({
+        url: redisUrl,
+        socket: {
+          tls: true,
+          rejectUnauthorized: false,
+        },
+      });
 
-      // Create Redis clients
-      this.client = new Redis(redisUrl);
-      this.pubClient = new Redis(redisUrl);
-      this.subClient = new Redis(redisUrl);
+      this.client.on("error", (err) => {
+        console.error("Redis Client Error:", err);
+      });
 
-      // Test connections
-      await this.client.ping();
-      await this.pubClient.ping();
-      await this.subClient.ping();
+      this.client.on("connect", () => {
+        console.log("Connected to Upstash Redis");
+      });
 
-      logger.info("✅ Redis connections established successfully");
-
-      // Basic error handling
-      this.client.on("error", (err) =>
-        logger.error("Redis Error:", err.message)
-      );
-      this.pubClient.on("error", (err) =>
-        logger.error("Redis Pub Error:", err.message)
-      );
-      this.subClient.on("error", (err) =>
-        logger.error("Redis Sub Error:", err.message)
-      );
+      await this.client.connect();
+      return this.client;
     } catch (error) {
-      logger.error("❌ Failed to connect to Redis:", error.message);
+      console.error("Failed to connect to Redis:", error);
       throw error;
     }
   }
@@ -50,16 +39,11 @@ class RedisManager {
     return this.client;
   }
 
-  getPubSubClients() {
-    return { pubClient: this.pubClient, subClient: this.subClient };
-  }
-
   async disconnect() {
-    if (this.client) await this.client.quit();
-    if (this.pubClient) await this.pubClient.quit();
-    if (this.subClient) await this.subClient.quit();
-    logger.info("Redis connections closed");
+    if (this.client) {
+      await this.client.disconnect();
+    }
   }
 }
 
-module.exports = new RedisManager();
+module.exports = new RedisConfig();
