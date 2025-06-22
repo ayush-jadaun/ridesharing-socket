@@ -2,28 +2,20 @@
   "name": "evai",
   "version": "1.0.0",
   "description": "",
-  "main": "src/server.js",
+  "main": "index.js",
   "scripts": {
-    "dev": "nodemon src/server.js"
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ayush-jadaun/ridesharing-socket.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "dependencies": {
-    "@socket.io/redis-adapter": "^8.3.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
-    "express": "^5.1.0",
-    "ioredis": "^5.6.1",
-    "jest": "^30.0.2",
-    "joi": "^17.13.3",
-    "ngeohash": "^0.6.3",
-    "nodemon": "^3.1.10",
-    "redis": "^5.5.6",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
-    "uuid": "^11.1.0",
-    "winston": "^3.17.0"
-  }
+  "bugs": {
+    "url": "https://github.com/ayush-jadaun/ridesharing-socket/issues"
+  },
+  "homepage": "https://github.com/ayush-jadaun/ridesharing-socket#readme"
 }
