@@ -10,6 +10,7 @@
   <button onclick="goOnline()">Go Online</button>
   <button onclick="goOffline()">Go Offline</button>
   <button onclick="acceptRide()">Accept Ride</button>
+  <button onclick="rideCompleted()">Complete Ride</button>
   <pre id="events"></pre>
   <script>
     const socket = io("http://localhost:3000");
@@ -27,6 +28,10 @@
         const driverId = document.getElementById('driverId').value;
         socket.emit('driver:acceptRide', { driverId, rideId: lastRideId });
       }
+    }
+    function rideCompleted(){
+      const driverId= document.getElementById('driverId').value
+      socket.emit('ride:finish', { driverId, rideId: lastRideId });
     }
     socket.on('ride:request', r => {
       lastRideId = r.rideId;
