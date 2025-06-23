@@ -8,7 +8,7 @@ async function createRideRequest(pickup, drop) {
   // Store ride status as pending (atomic control)
   await setRidePending(rideId);
 
-  // You can persist pickup/drop/user info here for later DB (commented)
+  // persist pickup/drop/user info here for later DB (commented)
   // await redis.hSet('rides:data', rideId, JSON.stringify({ pickup, drop, ... }));
 
   return rideId;

@@ -78,7 +78,7 @@ module.exports = (io) => {
           const status = await getRideStatus(rideId);
           if (status === "pending" && !rideAccepted) {
             if (radius >= MAX_RADIUS) {
-              // Timeout reached!
+              // Timeout reached
               const rideReq = rideToRider.get(rideId);
               if (rideReq) {
                 rideReq.socket.emit("rider:noDrivers", { rideId });
@@ -154,7 +154,6 @@ module.exports = (io) => {
 
     socket.on("ride:finish", async ({ driverId, rideId }) => {
       driverActiveRide.delete(driverId);
-      // ...additional cleanup logic if needed
     });
 
     // Clean up on disconnect for both drivers and riders
